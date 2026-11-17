@@ -1,0 +1,60 @@
+// 画面を人と同じように操作して、見てもらう・見てあげるの一回りを確かめる（見本で動かす）。使い方: node tests/app.e2e.js 400
+const { chromium } = require("playwright");
+const path = require("path");
+const W = parseInt(process.argv[2] || "400");
+(async () => {
+  const b = await chromium.launch(); const errs = [], log = [];
+  const p = await (await b.newContext({viewport: {width: W, height: 860}})).newPage();
+  p.on("pageerror", e => errs.push(e.message));
+  const check = (l, c) => { if (!c) process.exitCode = 1; log.push((c ? "OK  " : "NG  ") + l); };
+  await p.goto("file://" + path.resolve(__dirname, "..", "index.html") + "#demo");
+  await p.fill("#nm", "nnda"); await p.click("[data-act=start]");
+  await p.waitForSelector("#idc"); await p.waitForTimeout(800);
+  check("名前だけで始められる", (await p.textContent("#idc")).includes("nnda"));
+  check("最初の券は1枚", await p.evaluate(() => __sr.S.users[__sr.me.pk] ? __sr.S.users[__sr.me.pk].tickets === 1 : true));
+  check("見てあげる依頼が並ぶ", (await p.textContent(".two")).includes("件が待っています"));
+  // 見てもらう
+  await p.click("[data-act=ask]"); await p.waitForTimeout(350);
+  await p.fill("#a-link", "https://github.com/nndahedeyo/zandaka"); await p.fill("#a-ask", "最初の画面で迷わないか");
+  await p.click('[data-chip=genre][data-v=use]'); await p.click("[data-act=send-ask]"); await p.waitForTimeout(300);
+  check("依頼を出すと券が減る", await p.evaluate(() => __sr.S.users[__sr.me.pk].tickets === 0));
+  await p.waitForTimeout(6500); await p.evaluate(() => __sr.act("dismiss"));
+  await p.evaluate(() => { const r = Object.values(__sr.S.reqs).find(r => r.by === __sr.me.pk); return r && r.status; });
+  await p.waitForFunction(() => Object.values(__sr.S.reqs).some(r => r.by === __sr.me.pk && r.status === "given"), null, {timeout: 12000}).catch(() => {});
+  await p.evaluate(() => { /* 画面を最新に */ });
+  await p.waitForTimeout(5200);
+  check("見本の参加者が引き受けて届けてくれる", (await p.textContent("#lists")).includes("届きました"));
+  await p.click('.item[data-act=judge]'); await p.waitForTimeout(350);
+  check("届いたレビューが読める", (await p.textContent("#pbody")).includes("確かめた環境"));
+  await p.click("[data-act=judge-ok]"); await p.waitForTimeout(300);
+  check("役に立ったで完了", (await p.textContent("#lists")).includes("役に立った"));
+  // 見てあげる
+  await p.click("[data-act=give]"); await p.waitForTimeout(350);
+  const first = await p.textContent("#pbody .ask");
+  await p.click("[data-act=skip]"); await p.waitForTimeout(200);
+  check("見送ると次の依頼に移る（何も減らない）", (await p.textContent("#pbody .ask")) !== first);
+  await p.click("[data-act=take]"); await p.waitForTimeout(400);
+  check("引き受けると書く画面になる", !!(await p.$("#pbody [data-field]")));
+  await p.click("[data-act=send-give]"); await p.waitForTimeout(200);
+  check("中身が少ないと届けられない", (await p.textContent("#w-msg")).includes("2つ以上"));
+  await p.fill("#w0", "iPhone 15 / Safari"); await p.fill("#w1", "保存ボタンが見つけにくい"); await p.fill("#w3", "ボタンを下に固定するとよい");
+  await p.click("[data-act=send-give]"); await p.waitForTimeout(300);
+  const before = await p.evaluate(() => __sr.S.users[__sr.me.pk].tickets);
+  await p.waitForTimeout(3500); await p.waitForTimeout(5200);
+  check("見てあげたレビューが役に立つと券が増える", await p.evaluate(b => __sr.S.users[__sr.me.pk].tickets === b + 1, before));
+  // しくみ・記録・払って戻る
+  await p.click("[data-act=how]"); await p.waitForTimeout(350);
+  check("しくみが開く", (await p.textContent("#pbody h2")) === "しくみ");
+  await p.evaluate(() => { const el = document.getElementById("panel"); const mk = (type, x) => { const t = new Touch({identifier: 1, target: el, clientX: x, clientY: 300}); el.dispatchEvent(new TouchEvent(type, {touches: type === "touchend" ? [] : [t], changedTouches: [t], bubbles: true})); };
+    mk("touchstart", 40); mk("touchmove", 90); mk("touchmove", 220); mk("touchend", 220); });
+  await p.waitForTimeout(400);
+  check("横に払うと戻る", !(await p.evaluate(() => document.getElementById("panel").classList.contains("on"))));
+  await p.click("[data-act=me]"); await p.waitForTimeout(350);
+  check("記録に自分の出来事が並ぶ", (await p.textContent("#pbody")).includes("依頼") && (await p.textContent("#pbody")).includes("届けた"));
+  await p.click("[data-act=back]"); await p.waitForTimeout(450);
+  check("横にはみ出さない", !(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));
+  if (W === 400) await p.screenshot({path: "/tmp/claude-0/-home-claude/5e021df8-936d-57ea-b411-4aa434b57390/scratchpad/sougo/s400.png", fullPage: true});
+  console.log(await p.evaluate(() => JSON.stringify(Object.values(__sr.S.reqs).map(r => [__sr.S.users[r.by].name, r.genre, r.status, r.taker === __sr.me.pk]))));
+  console.log(log.join("\n")); console.log("errors", JSON.stringify(errs)); if (errs.length) process.exitCode = 1;
+  await b.close();
+})();

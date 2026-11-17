@@ -2,13 +2,23 @@ name: tests
 on:
   push:
     branches: [main]
-    paths-ignore: ["data/ledger.jsonl"]
   pull_request:
 permissions:
   contents: read
 jobs:
-  unit:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tests/test_flow.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 署名（公式の試験ベクトル）
+        run: node tests/sig.test.js
+      - name: 決まり
+        run: node --test tests/rules.test.js
+      - name: index.html が部品から作り直されているか
+        run: python3 tools/build.py && git diff --exit-code index.html
+      - run: npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
+      - name: 画面を操作して確かめる（スマホとパソコンの幅）
+        run: node tests/app.e2e.js 400 && node tests/app.e2e.js 1200

@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="個人開発のアプリや文章を、人もAIも対等に見せ合う場所。券1枚で見てもらい、見てあげると券が増える。">
+<title>相互レビュー</title>
+<meta name="color-scheme" content="light dark">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--sunk:#efede6;--ink:#1d1c19;--mute:#6b6860;--line:#dcd8cc;--acc:#0e6b5c;--acc2:#e6f2ef;--onacc:#fff;--warm:#b3412f;--warnbg:#fff4dc;--warn:#8a5a00}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151513;--card:#1e1e1b;--sunk:#262622;--ink:#ecebe6;--mute:#a19d93;--line:#38372f;--acc:#55c2ad;--acc2:#1d302c;--onacc:#0d1d1a;--warm:#e07a68;--warnbg:#2c2414;--warn:#e5b45a}}
+:root[data-theme="dark"]{--bg:#151513;--card:#1e1e1b;--sunk:#262622;--ink:#ecebe6;--mute:#a19d93;--line:#38372f;--acc:#55c2ad;--acc2:#1d302c;--onacc:#0d1d1a;--warm:#e07a68;--warnbg:#2c2414;--warn:#e5b45a}
+*{box-sizing:border-box}
+html,body{overscroll-behavior-x:none}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+.wrap{max-width:520px;margin:0 auto;padding:16px 16px 40px}
+header{display:flex;justify-content:space-between;align-items:center;margin:8px 0 20px}
+h1{font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:22px;letter-spacing:.12em;margin:0}
+h2{font-size:18px;margin:0}
+h3{font-size:13px;color:var(--mute);font-weight:600;margin:26px 2px 8px;letter-spacing:.04em}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 14px;cursor:pointer;min-height:44px}
+button.primary{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:700}
+button.wide{width:100%}
+button.link{border:0;background:none;color:var(--mute);padding:6px 0;min-height:0;font-size:13px}
+button[disabled]{opacity:.4;cursor:not-allowed}
+input,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:100%}
+textarea{min-height:70px;resize:vertical}
+label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
+.small{font-size:13px;color:var(--mute)}
+.idcard{aspect-ratio:1.586;border-radius:20px;padding:22px 24px;color:#fff;position:relative;overflow:hidden;background:radial-gradient(120% 140% at 0% 0%,#1f8a76 0%,#0e5a4d 55%,#0b3f37 100%);box-shadow:0 18px 40px rgba(14,90,77,.25);display:flex;flex-direction:column;justify-content:space-between}
+.idcard::after{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.07)}
+.idcard .nm{font-size:26px;font-weight:700;letter-spacing:.04em}
+.idcard .tag{font-size:12px;opacity:.75}
+.idcard .row{display:flex;justify-content:space-between;align-items:flex-end}
+.tix{display:flex;gap:6px;align-items:center}
+.tix i{width:14px;height:14px;border-radius:50%;background:#fff;opacity:.95}
+.tix i.empty{background:none;border:2px solid rgba(255,255,255,.55)}
+.idcard .stat{font-size:12px;opacity:.8;text-align:right}
+.idcard.glow{animation:glow 1.4s ease}
+@keyframes glow{0%{box-shadow:0 0 0 6px rgba(85,194,173,.6)}100%{box-shadow:0 18px 40px rgba(14,90,77,.25)}}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+.two button{min-height:76px;font-size:16px;font-weight:700;border-radius:16px;display:grid;gap:2px;place-content:center}
+.two button small{font-size:11px;font-weight:500;opacity:.8}
+.item{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;box-shadow:0 1px 0 var(--line);cursor:pointer;width:100%;text-align:left;border:0}
+.item b{display:block;font-size:14px}
+.item span{font-size:12px;color:var(--mute)}
+.pill{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--sunk);color:var(--mute);white-space:nowrap}
+.pill.go{background:var(--acc2);color:var(--acc);font-weight:700}
+.empty{color:var(--mute);font-size:13px;padding:6px 2px}
+.note{border-radius:14px;padding:12px 14px;font-size:14px;margin-top:14px;display:flex;gap:10px;justify-content:space-between;background:var(--acc2);color:var(--acc)}
+.note.warn{background:var(--warnbg);color:var(--warn)}
+.note button{border:0;background:none;color:inherit;min-height:0;padding:0 2px;font-size:18px;line-height:1}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)}
+.status i{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.status.on i{background:var(--acc)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{min-height:36px;padding:6px 12px;border-radius:999px;font-size:14px}
+.chips button[aria-pressed="true"]{background:var(--acc2);border-color:var(--acc);color:var(--acc);font-weight:700}
+.job{background:var(--card);border-radius:18px;padding:18px;display:grid;gap:10px;box-shadow:0 1px 0 var(--line)}
+.job a{color:var(--acc);word-break:break-all}
+.job .ask{font-size:16px}
+.rv{display:grid;gap:12px}
+.rv div b{display:block;font-size:13px;color:var(--mute);font-weight:600}
+.rv div p{margin:2px 0 0;white-space:pre-wrap}
+.foot{margin-top:32px;font-size:12px;color:var(--mute);text-align:center}
+.panel{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+.panel.on{transform:none}
+.panel .bar{display:flex;align-items:center;padding:12px 12px 4px;max-width:520px;width:100%;margin:0 auto}
+.panel .bar button{border:0;background:none;min-height:40px;padding:6px 8px;color:var(--acc);font-weight:600}
+.panel .body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.panel .inner{max-width:520px;margin:0 auto;padding:4px 16px 48px;display:grid;gap:16px}
+.how h4{font-size:15px;margin:0 0 4px}.how p{margin:0;font-size:14px;color:var(--mute)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
+@media (prefers-reduced-motion:reduce){.idcard.glow{animation:none}.panel{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header><h1>相互レビュー</h1><div style="display:flex;gap:14px;align-items:center"><span class="status" id="net"><i></i><span></span></span><button type="button" class="link" data-act="how">しくみ</button></div></header>
+  <main id="main"></main>
+  <p class="foot">見てもらった分だけ、見てあげる。お金は使いません。<br><button type="button" class="link" data-act="me">記録とかぎ</button></p>
+</div>
+<div class="panel" id="panel" aria-hidden="true"><div class="bar"><button type="button" data-act="back">‹ 戻る</button></div><div class="body"><div class="inner" id="pbody"></div></div></div>
+
+<script>
+// 署名（BIP340 Schnorr / secp256k1）と Nostr のイベント。外部の部品を使わずに書いている。
+// 公式の試験ベクトル（tests/sig.test.js）で正しさを確かめている。
+"use strict";
+(function (root) {
+  const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
+  const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+  const GX = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
+  const GY = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
+  const mod = (a, m = P) => { const r = a % m; return r >= 0n ? r : r + m; };
+  const pow = (b, e, m = P) => { let r = 1n; b = mod(b, m); while (e > 0n) { if (e & 1n) r = r * b % m; b = b * b % m; e >>= 1n; } return r; };
+  const inv = (a, m = P) => { let [x, y, u, v] = [mod(a, m), m, 1n, 0n]; while (x !== 0n) { const q = y / x; [x, y] = [y - q * x, x]; [u, v] = [v - q * u, u]; } return mod(v, m); };
+
+  // ヤコビ座標の点 [X, Y, Z]（Z=0 は無限遠点）
+  const O = [0n, 1n, 0n];
+  function dbl([X, Y, Z]) {
+    if (Z === 0n || Y === 0n) return O;
+    const A = X * X % P, B = Y * Y % P, C = B * B % P;
+    const D = mod(2n * (mod((X + B) ** 2n) - A - C)), E = 3n * A % P, F = E * E % P;
+    const X3 = mod(F - 2n * D), Y3 = mod(E * (D - X3) - 8n * C), Z3 = 2n * Y * Z % P;
+    return [X3, Y3, Z3];
+  }
+  function add(p1, p2) {
+    if (p1[2] === 0n) return p2; if (p2[2] === 0n) return p1;
+    const [X1, Y1, Z1] = p1, [X2, Y2, Z2] = p2;
+    const Z1Z1 = Z1 * Z1 % P, Z2Z2 = Z2 * Z2 % P;
+    const U1 = X1 * Z2Z2 % P, U2 = X2 * Z1Z1 % P, S1 = Y1 * Z2 % P * Z2Z2 % P, S2 = Y2 * Z1 % P * Z1Z1 % P;
+    if (U1 === U2) return S1 === S2 ? dbl(p1) : O;
+    const H = mod(U2 - U1), I = (2n * H) ** 2n % P, J = H * I % P, r = mod(2n * (S2 - S1)), V = U1 * I % P;
+    const X3 = mod(r * r - J - 2n * V), Y3 = mod(r * (V - X3) - 2n * S1 * J), Z3 = mod(((Z1 + Z2) ** 2n - Z1Z1 - Z2Z2) * H);
+    return [X3, Y3, Z3];
+  }
+  function mul(pt, k) { let R = O, Q = pt; while (k > 0n) { if (k & 1n) R = add(R, Q); Q = dbl(Q); k >>= 1n; } return R; }
+  function affine([X, Y, Z]) { if (Z === 0n) return null; const zi = inv(Z), z2 = zi * zi % P; return [X * z2 % P, Y * z2 % P * zi % P]; }
+  const G = [GX, GY, 1n];
+  // G の倍数は表を作っておく（署名と確認を速くする）
+  const GT = []; { let q = G; for (let i = 0; i < 256; i++) { GT.push(q); q = dbl(q); } }
+  function mulG(k) { let R = O; for (let i = 0; k > 0n; i++, k >>= 1n) if (k & 1n) R = add(R, GT[i]); return R; }
+
+  const hex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+  const unhex = h => Uint8Array.from(h.match(/../g) || [], x => parseInt(x, 16));
+  const num = b => BigInt("0x" + (hex(b) || "0"));
+  const n32 = x => unhex(x.toString(16).padStart(64, "0"));
+  const cat = (...a) => { const o = new Uint8Array(a.reduce((s, x) => s + x.length, 0)); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
+  const enc = new TextEncoder();
+  const subtle = (root.crypto && root.crypto.subtle) || require("crypto").webcrypto.subtle;
+  const sha = async b => new Uint8Array(await subtle.digest("SHA-256", b));
+  const tagged = async (tag, ...m) => { const t = await sha(enc.encode(tag)); return sha(cat(t, t, ...m)); };
+
+  function liftX(x) {
+    if (x >= P) return null;
+    const c = mod(x ** 3n + 7n), y = pow(c, (P + 1n) / 4n);
+    if (y * y % P !== c) return null;
+    return [x, y & 1n ? P - y : y, 1n];
+  }
+  function pubkey(sk) { const d = num(sk); if (d <= 0n || d >= N) throw new Error("bad key"); return n32(affine(mulG(d))[0]); }
+  async function sign(msg, sk, aux) {
+    let d = num(sk); if (d <= 0n || d >= N) throw new Error("bad key");
+    const Pa = affine(mulG(d)); if (Pa[1] & 1n) d = N - d;
+    const px = n32(Pa[0]);
+    const t = n32(d ^ num(await tagged("BIP0340/aux", aux)));
+    const k0 = mod(num(await tagged("BIP0340/nonce", t, px, msg)), N); if (k0 === 0n) throw new Error("bad nonce");
+    const R = affine(mulG(k0)); const k = R[1] & 1n ? N - k0 : k0;
+    const rx = n32(R[0]);
+    const e = mod(num(await tagged("BIP0340/challenge", rx, px, msg)), N);
+    return cat(rx, n32(mod(k + e * d, N)));
+  }
+  async function verify(msg, pk, sig) {
+    try {
+      if (sig.length !== 64 || pk.length !== 32) return false;
+      const Pp = liftX(num(pk)); if (!Pp) return false;
+      const r = num(sig.slice(0, 32)), s = num(sig.slice(32)); if (r >= P || s >= N) return false;
+      const e = mod(num(await tagged("BIP0340/challenge", sig.slice(0, 32), pk, msg)), N);
+      const R = affine(add(mulG(s), mul(Pp, N - e)));
+      return !!R && !(R[1] & 1n) && R[0] === r;
+    } catch (e) { return false; }
+  }
+
+  // ---------- Nostr のイベント ----------
+  async function eventId(ev) { return hex(await sha(enc.encode(JSON.stringify([0, ev.pubkey, ev.created_at, ev.kind, ev.tags, ev.content])))); }
+  async function signEvent(tmpl, skHex) {
+    const sk = unhex(skHex);
+    const ev = {kind: tmpl.kind, created_at: tmpl.created_at || Math.floor(Date.now() / 1000), tags: tmpl.tags || [], content: tmpl.content || "", pubkey: hex(pubkey(sk))};
+    ev.id = await eventId(ev);
+    ev.sig = hex(await sign(unhex(ev.id), sk, (root.crypto || require("crypto").webcrypto).getRandomValues(new Uint8Array(32))));
+    return ev;
+  }
+  async function verifyEvent(ev) {
+    if (!ev || typeof ev.id !== "string" || ev.id !== await eventId(ev)) return false;
+    return verify(unhex(ev.id), unhex(ev.pubkey), unhex(ev.sig));
+  }
+  function newKey() { for (;;) { const b = (root.crypto || require("crypto").webcrypto).getRandomValues(new Uint8Array(32)); const d = num(b); if (d > 0n && d < N) return hex(b); } }
+
+  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex};
+  if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sig = api;
+})(typeof globalThis !== "undefined" ? globalThis : this);
+
+</script>
+<script>
+// 相互レビューの決まり。署名つきの出来事（イベント）の並びから、だれが計算しても同じ状態になる。
+// 運営もサーバーもいない。決まりに合わない出来事は、どの画面でも同じように無視される。
+"use strict";
+(function (root) {
+  const DAY = 86400;
+  const R = {
+    start: 1,          // 最初に配られる券
+    holdMax: 2,        // 同時に引き受けられる数
+    writeDays: 7,      // 引き受けてから届けるまで
+    judgeDays: 7,      // 届いてから返事がなければ「役に立った」
+    aiEarns: false,    // AIだけで書いたレビューで券が増えるか
+  };
+  const GENRES = [
+    {id: "use", name: "使い心地", min: 30, fields: ["確かめた環境", "迷った・止まった所", "よかった所", "直すとよい所"]},
+    {id: "code", name: "コード", min: 45, fields: ["読んだ範囲", "危ない・わかりにくい所", "よかった所", "直し方の提案"]},
+    {id: "text", name: "文章", min: 30, fields: ["読んだもの", "わかりにくい・言い過ぎの所", "よかった所", "直すとよい所"]},
+    {id: "look", name: "見た目", min: 20, fields: ["見た環境", "気になった所", "よかった所", "直すとよい所"]},
+    {id: "idea", name: "考え", min: 30, fields: ["読んだもの", "穴や心配な所", "よかった所", "提案"]},
+  ];
+  const KINDS = ["人", "人+AI", "AI"];
+  const gen = id => GENRES.find(g => g.id === id);
+
+  function reduce(events, now) {
+    const evs = events.slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
+    const S = {users: {}, reqs: {}, log: []};
+    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, got: 0, lastReviewed: null, joined: null});
+    const holding = pk => Object.values(S.reqs).filter(r => r.status === "taken" && r.taker === pk).length;
+    function tick(t) {   // 時間で決まる移り変わり
+      for (const r of Object.values(S.reqs)) {
+        if (r.status === "taken" && t > r.takenAt + R.writeDays * DAY) { r.status = "open"; r.taker = null; r.lapsed = (r.lapsed || 0) + 1; }
+        else if (r.status === "given" && t > r.givenAt + R.judgeDays * DAY) finish(r, true, r.givenAt + R.judgeDays * DAY, true);
+      }
+    }
+    function finish(r, ok, t, auto) {
+      r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
+      const tk = U(r.taker), by = U(r.by);
+      tk.gave++; by.got++;
+      if (ok && (r.kind !== "AI" || R.aiEarns)) tk.tickets++;
+      tk.lastReviewed = r.by;
+    }
+    for (const e of evs) {
+      let c; try { c = JSON.parse(e.content); } catch (x) { continue; }
+      if (!c || typeof c !== "object") continue;
+      tick(e.created_at);
+      const u = U(e.pubkey); if (!u.joined) u.joined = e.created_at;
+      const r = c.req && S.reqs[c.req];
+      let ok = false;
+      if (c.t === "hello" && typeof c.name === "string") { u.name = c.name.slice(0, 24); ok = true; }
+      else if (c.t === "ask" && u.tickets >= 1 && gen(c.genre) && /^https:\/\/\S+$/.test(c.link || "") && (c.ask || "").trim()) {
+        u.tickets--;
+        S.reqs[e.id] = {id: e.id, by: e.pubkey, at: e.created_at, link: c.link.slice(0, 300), genre: c.genre, ask: String(c.ask).slice(0, 400), ai: c.ai !== false, status: "open", taker: null};
+        ok = true;
+      }
+      else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; u.tickets++; ok = true; }
+      else if (c.t === "take" && r && r.status === "open" && r.by !== e.pubkey && U(r.by).lastReviewed !== e.pubkey && holding(e.pubkey) < R.holdMax) {
+        r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; ok = true;
+      }
+      else if (c.t === "release" && r && r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; ok = true; }
+      else if (c.t === "give" && r && r.status === "taken" && r.taker === e.pubkey && KINDS.includes(c.kind) && (r.ai || c.kind !== "AI") && c.body && typeof c.body === "object") {
+        r.status = "given"; r.givenAt = e.created_at; r.kind = c.kind; r.body = c.body; r.reviewId = e.id; ok = true;
+      }
+      else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
+      S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
+    }
+    tick(now);
+    return S;
+  }
+
+  const api = {reduce, R, GENRES, KINDS, gen, DAY};
+  if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Rules = api;
+})(typeof globalThis !== "undefined" ? globalThis : this);
+
+</script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const now = () => Math.floor(Date.now() / 1000);
+const KIND = 7710, TAG = "sougo-review";
+const RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://relay.nostr.band"];
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+
+/* ---------- かぎ（端末の中だけ） ---------- */
+let me = store.get("sougo.me", null);          // {sk, pk, name}
+let mode = "connecting";                         // connecting / live / demo
+let events = [], S = null, note = null, skipped = new Set(store.get("sougo.skip", []));
+
+/* ---------- 出来事の置き場所 ---------- */
+const bucket = () => mode === "demo" ? "sougo.demo" : "sougo.live";
+function loadEvents() { events = store.get(bucket(), []); }
+function saveEvents() { store.set(bucket(), events.slice(-3000)); }
+function addEvent(ev) {
+  if (events.some(e => e.id === ev.id)) return false;
+  events.push(ev); saveEvents(); return true;
+}
+function recompute() { S = Rules.reduce(events.filter(e => e.kind === KIND), now()); }
+
+/* ---------- リレー（Nostr） ---------- */
+const sockets = [];
+let verified = new Set(store.get("sougo.ok", []));
+async function accept(ev) {
+  if (!ev || ev.kind !== KIND || !(ev.tags || []).some(t => t[0] === "t" && t[1] === TAG)) return;
+  if (!verified.has(ev.id)) { if (!(await Sig.verifyEvent(ev))) return; verified.add(ev.id); store.set("sougo.ok", [...verified].slice(-5000)); }
+  if (addEvent(ev)) schedule();
+}
+let t0;
+function schedule() { clearTimeout(t0); t0 = setTimeout(() => { recompute(); live(); }, 150); }
+function connect() {
+  if (!("WebSocket" in window)) return toDemo();
+  let opened = 0;
+  for (const url of RELAYS) {
+    try {
+      const ws = new WebSocket(url);
+      ws.onopen = () => { opened++; if (mode !== "live") toLive(); ws.send(JSON.stringify(["REQ", "sr", {kinds: [KIND], "#t": [TAG], limit: 2000}])); flush(); };
+      ws.onmessage = m => { try { const d = JSON.parse(m.data); if (d[0] === "EVENT") accept(d[2]); } catch (e) {} };
+      ws.onclose = () => { setTimeout(netStatus, 50); };
+      ws.onerror = () => {};
+      sockets.push(ws);
+    } catch (e) {}
+  }
+  setTimeout(() => { if (mode === "connecting") toDemo(); }, 6000);
+}
+const openSockets = () => sockets.filter(s => s.readyState === 1);
+let outbox = store.get("sougo.outbox", []);
+function flush() {
+  const os = openSockets(); if (!os.length) return;
+  for (const ev of outbox) for (const s of os) s.send(JSON.stringify(["EVENT", ev]));
+  outbox = []; store.set("sougo.outbox", outbox);
+}
+function toLive() { mode = "live"; loadEvents(); recompute(); netStatus(); render(); }
+function toDemo() { mode = "demo"; loadEvents(); seedDemo().then(() => { recompute(); netStatus(); render(); }); }
+function netStatus() {
+  const n = $("#net"), on = mode === "live" && openSockets().length > 0;
+  n.className = "status" + (on ? " on" : "");
+  n.lastChild.textContent = mode === "demo" ? "見本" : on ? "つながっています" : "つないでいます";
+}
+
+/* ---------- 出す ---------- */
+async function emit(c) {
+  // 同じ秒に続けて出すと順番が入れ替わるので、自分の出来事は必ず前より後の時刻にする
+  const last = events.filter(e => e.pubkey === me.pk).reduce((m, e) => Math.max(m, e.created_at), 0);
+  const ev = await Sig.signEvent({kind: KIND, tags: [["t", TAG]], content: JSON.stringify(c), created_at: Math.max(now(), last + 1)}, me.sk);
+  addEvent(ev); verified.add(ev.id);
+  if (mode === "live") { outbox.push(ev); store.set("sougo.outbox", outbox); flush(); }
+  recompute();
+  if (mode === "demo") demoReact(c, ev);
+  return ev;
+}
+
+/* ---------- 見本（つながらないときだけ。この端末の中だけで動き、外には出ない） ---------- */
+const DEMO = [
+  {name: "みどり", asks: [{link: "https://example.com/kakeibo", genre: "use", ask: "家計簿アプリの最初の登録で迷わないか見てほしいです"}]},
+  {name: "Kaito", asks: [{link: "https://example.com/weather-api", genre: "code", ask: "天気を取ってくる部分のエラー処理が足りているか"}]},
+  {name: "ことね", asks: [{link: "https://example.com/note-article", genre: "text", ask: "初心者向けの記事です。専門用語が多すぎないか"}]},
+];
+async function seedDemo() {
+  const keys = store.get("sougo.demokeys", null) || DEMO.map(() => Sig.newKey());
+  store.set("sougo.demokeys", keys);
+  if (events.length) return;
+  let t = now() - 3600;
+  for (let i = 0; i < DEMO.length; i++) {
+    addEvent(await Sig.signEvent({kind: KIND, tags: [["t", TAG]], content: JSON.stringify({t: "hello", name: DEMO[i].name}), created_at: t++}, keys[i]));
+    for (const a of DEMO[i].asks) addEvent(await Sig.signEvent({kind: KIND, tags: [["t", TAG]], content: JSON.stringify({t: "ask", ...a, ai: true}), created_at: t++}, keys[i]));
+  }
+}
+function demoReact(c, ev) {
+  const keys = store.get("sougo.demokeys", []);
+  const later = (ms, fn) => setTimeout(async () => { await fn(); recompute(); live(); }, ms);
+  const sign = (k, content) => Sig.signEvent({kind: KIND, tags: [["t", TAG]], content: JSON.stringify(content), created_at: now()}, k).then(addEvent);
+  if (c.t === "ask") {
+    const k = keys[1];
+    later(2500, () => sign(k, {t: "take", req: ev.id}));
+    later(6000, () => { const g = Rules.gen(c.genre); const body = {}; g.fields.forEach((f, i) => body[f] = ["iPhone 15 / Safari で確かめました。", "最初のボタンの意味が分からず、少し止まりました。", "色と文字の大きさが見やすいです。", "最初の画面に一言の説明があると迷いません。"][i] || "（見本）"); return sign(k, {t: "give", req: ev.id, kind: "人+AI", body}); });
+  }
+  if (c.t === "give") {
+    const r = S.reqs[c.req]; const i = DEMO.findIndex((d, j) => Sig.hex(Sig.pubkey(Sig.unhex(keys[j]))) === r.by);
+    if (i >= 0) later(3000, () => sign(keys[i], {t: "judge", req: c.req, ok: true}));
+  }
+}
+
+/* ---------- 画面 ---------- */
+const nameOf = pk => (S.users[pk] && S.users[pk].name) || pk.slice(0, 8);
+const mine = () => S.users[me.pk] || {tickets: Rules.R.start, gave: 0, got: 0};
+const shortLink = l => l.replace(/^https:\/\//, "").slice(0, 48);
+function dots(n) { const show = Math.max(3, n); return Array.from({length: Math.min(show, 8)}, (_, i) => `<i class="${i < n ? "" : "empty"}"></i>`).join("") + (n > 8 ? `<span style="font-size:12px;opacity:.8">+${n - 8}</span>` : ""); }
+function todo() {
+  const out = [];
+  for (const r of Object.values(S.reqs)) {
+    if (r.by === me.pk && r.status === "given") out.push({r, act: "judge", label: "届きました", sub: "読んで、役に立ったかを返す"});
+    if (r.taker === me.pk && r.status === "taken") out.push({r, act: "write", label: "書く番です", sub: `${Rules.gen(r.genre).name}・${nameOf(r.by)}さん`});
+  }
+  return out;
+}
+function myAsks() { return Object.values(S.reqs).filter(r => r.by === me.pk && r.status !== "cancelled").sort((a, b) => b.at - a.at).slice(0, 6); }
+const ST = {open: "待っています", taken: "見てもらっています", given: "届きました", done: "完了"};
+function candidates() {
+  return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.pk && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.pk).sort((a, b) => a.at - b.at);
+}
+
+function render() {
+  const m = $("#main");
+  if (!me) {
+    m.innerHTML = `<div class="idcard" style="opacity:.92"><div><div class="tag">あなたのカード</div><div class="nm">&nbsp;</div></div><div class="tag">名前を決めるだけで始められます。登録もパスワードもいりません。</div></div>
+      <div style="margin-top:18px;display:grid;gap:12px"><label>呼び名<input id="nm" maxlength="24" placeholder="nnda" autocomplete="off"></label>
+      <button type="button" class="primary wide" data-act="start">はじめる</button>
+      <p class="small" style="margin:0">最初に券が1枚配られます。だれかのレビューをして「役に立った」と言われると、1枚増えます。</p></div>`;
+    return;
+  }
+  if (!S) { m.innerHTML = `<p class="empty">読み込んでいます…</p>`; return; }
+  const u = mine(), t = todo(), c = candidates().length;
+  m.innerHTML = `<div class="idcard" id="idc"><div><div class="tag">${mode === "demo" ? "見本で動いています" : "あなたのカード"}</div><div class="nm">${esc(me.name)}</div></div>
+      <div class="row"><div><div class="tag" style="margin-bottom:6px">券</div><div class="tix" id="tix">${dots(u.tickets)}</div></div><div class="stat" id="stat">見た ${u.gave}<br>見てもらった ${u.got}</div></div></div>
+    <div id="note">${noteHtml()}</div>
+    <div class="two"><button type="button" class="primary" data-act="ask">見てもらう<small>券を1枚使う</small></button><button type="button" data-act="give">見てあげる<small>${c ? `${c}件が待っています` : "いまは待っている依頼がありません"}</small></button></div>
+    <div id="lists">${listsHtml()}</div>`;
+}
+function listsHtml() {
+  const t = todo(), a = myAsks();
+  return (t.length ? `<h3>あなたの番</h3>${t.map(x => `<button type="button" class="item" data-act="${x.act}" data-id="${x.r.id}"><div><b>${x.label}</b><span>${esc(x.sub)}</span></div><span class="pill go">開く</span></button>`).join("")}` : "")
+    + `<h3>あなたの依頼</h3>` + (a.length ? a.map(r => `<button type="button" class="item" data-act="${r.status === "given" ? "judge" : "mine"}" data-id="${r.id}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</b><span>${esc(r.ask).slice(0, 40)}</span></div><span class="pill ${r.status === "given" ? "go" : ""}">${r.status === "done" ? (r.ok ? "役に立った" : "いまひとつ") : ST[r.status]}</span></button>`).join("") : `<p class="empty">まだありません。「見てもらう」から出せます。</p>`);
+}
+const noteHtml = () => note ? `<div class="note ${note.k || ""}" data-flash><span>${esc(note.m)}</span><button type="button" data-act="dismiss" aria-label="閉じる">×</button></div>` : "";
+let lastTix = null;
+function live() {
+  if (!me || !S) return;
+  if (!$("#idc")) return render();
+  const u = mine();
+  $("#tix").innerHTML = dots(u.tickets); $("#stat").innerHTML = `見た ${u.gave}<br>見てもらった ${u.got}`;
+  $("#lists").innerHTML = listsHtml();
+  const c = candidates().length; $(".two button:last-child small").textContent = c ? `${c}件が待っています` : "いまは待っている依頼がありません";
+  if (lastTix !== null && u.tickets > lastTix) { const el = $("#idc"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: "券が1枚増えました。あなたのレビューが役に立ちました。"}; $("#note").innerHTML = noteHtml(); }
+  lastTix = u.tickets;
+  if (openId) refreshPanel();
+}
+
+/* ---------- 2枚目の画面 ---------- */
+let openId = null, openKind = null, pick = {genre: "use", ai: true, kind: "人"};
+function openPanel(kind, id, html) { openKind = kind; openId = id || "x"; $("#pbody").innerHTML = html; const p = $("#panel"); p.style.transform = ""; p.classList.add("on"); p.setAttribute("aria-hidden", "false"); $(".panel .body").scrollTop = 0; }
+function closePanel() { const p = $("#panel"); p.style.transform = ""; p.classList.remove("on"); p.setAttribute("aria-hidden", "true"); openId = openKind = null; }
+function refreshPanel() {
+  // 開いている画面の中身が古くなったときだけ描き直す（入力中の欄には触らない）
+  if (openKind === "mine" || openKind === "judge") { const r = S.reqs[openId]; if (r) $("#pbody").innerHTML = openKind === "judge" && r.status === "given" ? judgeHtml(r) : mineHtml(r); }
+  if (openKind === "give" && !$("#pbody textarea")) $("#pbody").innerHTML = giveHtml();
+}
+const chips = (name, opts, cur) => `<div class="chips" role="group">${opts.map(([v, l]) => `<button type="button" data-chip="${name}" data-v="${v}" aria-pressed="${String(cur) === String(v)}">${esc(l)}</button>`).join("")}</div>`;
+function askHtml() {
+  const g = Rules.gen(pick.genre);
+  return `<h2>見てもらう</h2>
+    <label>見てほしいもの（リンク）<input id="a-link" inputmode="url" placeholder="https://" autocomplete="off"></label>
+    <div><div class="small" style="margin-bottom:6px">種類</div>${chips("genre", Rules.GENRES.map(x => [x.id, x.name]), pick.genre)}<p class="small" style="margin:6px 0 0">目安 ${g.min}分ほどの作業になります。</p></div>
+    <label>見てほしい点（1つか2つに絞ると引き受けてもらいやすい）<textarea id="a-ask" maxlength="400"></textarea></label>
+    <div><div class="small" style="margin-bottom:6px">AIだけで書いたレビュー</div>${chips("ai", [["true", "受ける"], ["false", "人が見たものだけ"]], pick.ai)}</div>
+    <button type="button" class="primary wide" data-act="send-ask" ${mine().tickets < 1 ? "disabled" : ""}>出す（券を1枚使う）</button>
+    ${mine().tickets < 1 ? `<p class="small" style="margin:0">券がありません。だれかのレビューをすると、券が増えます。</p>` : ""}
+    <p class="small" style="margin:0">ここで受けるのは、作り手だけが読む改善の意見です。ストアの星や宣伝用の推薦文には使えません。</p>`;
+}
+function giveHtml() {
+  const list = candidates();
+  if (!list.length) return `<h2>見てあげる</h2><p class="empty">いま待っている依頼はありません。${skipped.size ? `<br><button type="button" class="link" data-act="unskip">見送った依頼をもう一度見る</button>` : ""}</p>`;
+  const r = list[0], g = Rules.gen(r.genre);
+  return `<h2>見てあげる</h2>
+    <div class="job"><div style="display:flex;justify-content:space-between"><span class="pill">${esc(g.name)}・目安${g.min}分</span><span class="small">${esc(nameOf(r.by))}さん</span></div>
+      <div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
+      ${r.ai ? "" : `<span class="small">人が見たレビューを望んでいます</span>`}</div>
+    <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">ほかを見る<small>見送っても何も減らない</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">引き受ける<small>${Rules.R.writeDays}日以内に書く</small></button></div>
+    <p class="small" style="margin:0;text-align:center">残り ${list.length - 1}件</p>`;
+}
+function writeHtml(r) {
+  const g = Rules.gen(r.genre);
+  return `<h2>レビューを書く</h2>
+    <div class="job"><span class="pill" style="justify-self:start">${esc(g.name)}</span><div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a></div>
+    ${g.fields.map((f, i) => `<label>${esc(f)}<textarea data-field="${esc(f)}" id="w${i}"></textarea></label>`).join("")}
+    <div><div class="small" style="margin-bottom:6px">書いたのは</div>${chips("kind", Rules.KINDS.filter(k => r.ai || k !== "AI").map(k => [k, k]), pick.kind)}<p class="small" style="margin:6px 0 0">AIだけで書いたレビューでは、券は増えません。</p></div>
+    <p class="small" style="margin:0">画面の写真やリンクに、アドレス・残高・個人情報が写っていないか確かめてください。</p>
+    <p class="small" id="w-msg" style="margin:0;color:var(--warm)" role="alert"></p>
+    <button type="button" class="primary wide" data-act="send-give" data-id="${r.id}">届ける</button>
+    <button type="button" class="link" data-act="release" data-id="${r.id}">やっぱり手放す（ほかの人に回す）</button>`;
+}
+const reviewBody = r => `<div class="rv">${Object.entries(r.body || {}).map(([k, v]) => `<div><b>${esc(k)}</b><p>${esc(v) || "—"}</p></div>`).join("")}<span class="small">書いたのは：${esc(r.kind)}（${esc(nameOf(r.taker))}さん）</span></div>`;
+function judgeHtml(r) {
+  return `<h2>届いたレビュー</h2><div class="job"><span class="small">${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</span>${reviewBody(r)}</div>
+    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">いまひとつ</button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">役に立った<small>相手に券が1枚</small></button></div>
+    <p class="small" style="margin:0">${Rules.R.judgeDays}日たっても返事がなければ「役に立った」になります。</p>`;
+}
+function mineHtml(r) {
+  return `<h2>あなたの依頼</h2><div class="job"><span class="pill" style="justify-self:start">${esc(Rules.gen(r.genre).name)}・${r.status === "done" ? (r.ok ? "役に立った" : "いまひとつ") : ST[r.status]}</span><div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
+    ${r.taker ? `<span class="small">${r.status === "taken" ? "見てくれている人" : "見てくれた人"}：${esc(nameOf(r.taker))}さん</span>` : ""}</div>
+    ${r.status === "done" ? reviewBody(r) : ""}
+    ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">取り下げる（券が戻る）</button>` : ""}`;
+}
+const HOW = [
+  ["見てもらった分だけ、見てあげる", "券を1枚使うと、だれかに自分のものを見てもらえます。だれかのものを見て「役に立った」と言われると、券が1枚増えます。最初の1枚は配られます。"],
+  ["見送りは自由", "「見てあげる」では、こなせそうなものだけ引き受けます。見送っても何も減りません。重すぎる依頼は自然に後回しになるので、依頼する人は見てほしい点を絞るようになります。"],
+  ["お返しの褒め合いをしない", "直前にあなたを見てくれた人の依頼は、あなたには回ってきません。互いに褒め合うだけの交換を防ぐためです。"],
+  ["人もAIも参加できる", "書いたのが人か、人+AIか、AIかを必ず書きます。依頼する人は、AIだけのレビューを断れます。AIだけのレビューでは券は増えません（手間がほとんどかからないため）。"],
+  ["期限", `引き受けたら${Rules.R.writeDays}日以内に届けます。届かなければ、依頼はほかの人に戻ります。届いて${Rules.R.judgeDays}日返事がなければ「役に立った」になります。`],
+  ["運営がいない", "依頼もレビューも、あなたの端末で署名され、だれでも使える中継（Nostrのリレー）に置かれます。券の数は、すべての出来事から、だれの画面でも同じ決まりで数え直されます。運営が勝手に増やしたり消したりできません。"],
+  ["使わないこと", "ストアの星や宣伝用の推薦文の交換、個人情報が要るもの、お金のやり取りには使いません。"],
+];
+const howHtml = () => `<h2>しくみ</h2><div class="how" style="display:grid;gap:18px">${HOW.map(([t, b]) => `<div><h4>${t}</h4><p>${b}</p></div>`).join("")}</div>`;
+function meHtml() {
+  const mineLog = S.log.filter(l => l.pk === me.pk).slice(-30).reverse();
+  const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した"};
+  return `<h2>記録とかぎ</h2>
+    <div class="job"><b>この端末のかぎ</b><p class="small" style="margin:0">あなたのカードは、この端末の中のかぎだけで動いています。ほかの端末で続けるときや、端末を替えるときは、下のかぎを書き写して保管してください。人に見せると、なりすまされます。</p>
+      <details><summary class="small" style="cursor:pointer">かぎを表示する</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
+      <label>別の端末のかぎで続ける<input id="imp" placeholder="64文字のかぎ" autocomplete="off"></label><button type="button" data-act="import">このかぎに切り替える</button></div>
+    <div><h3 style="margin-top:0">あなたの出来事</h3>${mineLog.length ? mineLog.map(l => `<div class="small" style="display:flex;justify-content:space-between;padding:6px 2px;border-top:1px solid var(--line)"><span>${T[l.t] || l.t}${l.ok ? "" : "（決まりに合わず無効）"}</span><span>${new Date(l.at * 1000).toLocaleString("ja-JP")}</span></div>`).join("") : `<p class="empty">まだありません。</p>`}</div>
+    <p class="small mono" style="margin:0">あなたの番号：${me.pk}</p>`;
+}
+
+// 横に払うと戻る（左右どちらでも）
+(() => {
+  const p = $("#panel"); let x0 = 0, y0 = 0, dx = 0, track = null;
+  p.addEventListener("touchstart", e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; track = null; }, {passive: true});
+  p.addEventListener("touchmove", e => { const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+    if (track === null && (Math.abs(mx) > 10 || Math.abs(my) > 10)) track = Math.abs(mx) > Math.abs(my) * 1.4;
+    if (!track) return; dx = mx; p.style.transition = "none"; p.style.transform = `translateX(${dx}px)`; }, {passive: true});
+  p.addEventListener("touchend", () => { if (!track) return; p.style.transition = "";
+    if (Math.abs(dx) > 70) { p.style.transform = `translateX(${dx > 0 ? 100 : -100}%)`; setTimeout(closePanel, 220); } else p.style.transform = ""; });
+})();
+
+/* ---------- 操作 ---------- */
+async function act(a, id) {
+  const r = id && S && S.reqs[id];
+  if (a === "start") {
+    const name = ($("#nm").value || "").trim(); if (!name) return;
+    const sk = Sig.newKey(); me = {sk, pk: Sig.hex(Sig.pubkey(Sig.unhex(sk))), name}; store.set("sougo.me", me);
+    if (mode !== "connecting") { await emit({t: "hello", name}); render(); } else { render(); pendingHello = name; }
+    return;
+  }
+  if (a === "dismiss") { note = null; $("#note").innerHTML = ""; return; }
+  if (a === "back") return closePanel();
+  if (a === "how") return openPanel("how", null, howHtml());
+  if (a === "me") return me && S && openPanel("me", null, meHtml());
+  if (a === "ask") return openPanel("ask", null, askHtml());
+  if (a === "give") return openPanel("give", null, giveHtml());
+  if (a === "write" && r) return openPanel("write", id, writeHtml(r));
+  if (a === "judge" && r) return openPanel("judge", id, judgeHtml(r));
+  if (a === "mine" && r) return openPanel("mine", id, mineHtml(r));
+  if (a === "unskip") { skipped.clear(); store.set("sougo.skip", []); return openPanel("give", null, giveHtml()); }
+  if (a === "skip") { skipped.add(id); store.set("sougo.skip", [...skipped]); return openPanel("give", null, giveHtml()); }
+  if (a === "send-ask") {
+    const link = $("#a-link").value.trim(), ask = $("#a-ask").value.trim();
+    if (!/^https:\/\/\S+$/.test(link)) { $("#a-link").focus(); $("#a-link").style.borderColor = "var(--warm)"; return; }
+    if (!ask) { $("#a-ask").focus(); $("#a-ask").style.borderColor = "var(--warm)"; return; }
+    await emit({t: "ask", link, genre: pick.genre, ask, ai: pick.ai});
+    closePanel(); note = {m: "依頼を出しました。だれかが引き受けると、ここに出ます。"}; return render();
+  }
+  if (a === "take" && r) { await emit({t: "take", req: id}); const rr = S.reqs[id];
+    if (rr.taker !== me.pk) { note = {k: "warn", m: "ほかの人が先に引き受けたか、いまは引き受けられません。"}; render(); return openPanel("give", null, giveHtml()); }
+    render(); return openPanel("write", id, writeHtml(rr)); }
+  if (a === "release" && r) { await emit({t: "release", req: id}); closePanel(); note = {m: "手放しました。ほかの人に回ります。"}; return render(); }
+  if (a === "send-give" && r) {
+    const body = {}; let filled = 0;
+    document.querySelectorAll("#pbody [data-field]").forEach(el => { body[el.dataset.field] = el.value.trim(); if (el.value.trim()) filled++; });
+    if (filled < 2) { $("#w-msg").textContent = "2つ以上の項目を書いてください。"; const t = [...document.querySelectorAll("#pbody [data-field]")].find(x => !x.value.trim()); t && t.focus(); return; }
+    await emit({t: "give", req: id, kind: pick.kind, body});
+    closePanel(); note = {m: "届けました。相手が「役に立った」を押すと、券が1枚増えます。"}; return render();
+  }
+  if ((a === "judge-ok" || a === "judge-no") && r) { await emit({t: "judge", req: id, ok: a === "judge-ok"}); closePanel(); note = {m: "返事をしました。"}; return render(); }
+  if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: "取り下げました。券が戻りました。"}; return render(); }
+  if (a === "import") {
+    const k = ($("#imp").value || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(k)) { $("#imp").style.borderColor = "var(--warm)"; return; }
+    const pk = Sig.hex(Sig.pubkey(Sig.unhex(k))); me = {sk: k, pk, name: nameOf(pk)}; store.set("sougo.me", me); closePanel(); return render();
+  }
+}
+let pendingHello = null;
+document.addEventListener("click", e => {
+  const ch = e.target.closest && e.target.closest("[data-chip]");
+  if (ch) { const v = ch.dataset.v; pick[ch.dataset.chip] = v === "true" ? true : v === "false" ? false : v;
+    ch.parentNode.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === ch)));
+    if (ch.dataset.chip === "genre") { const p = ch.closest("div").querySelector("p"); if (p) p.textContent = `目安 ${Rules.gen(v).min}分ほどの作業になります。`; }
+    return; }
+  const t = e.target.closest && e.target.closest("[data-act]");
+  if (t) act(t.dataset.act, t.dataset.id);
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && openKind) closePanel(); });
+setInterval(() => { if (S) { recompute(); live(); } if (mode === "live") flush(); netStatus(); if (pendingHello && mode !== "connecting" && me) { const n = pendingHello; pendingHello = null; emit({t: "hello", name: n}).then(render); } }, 5000);
+window.__sr = {act, get S() { return S; }, get me() { return me; }, get mode() { return mode; }, toDemo};
+
+render();
+if (/demo/.test(location.hash)) toDemo(); else connect();
+</script>
+</body>
+</html>
