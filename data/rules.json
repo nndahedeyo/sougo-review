@@ -1,0 +1,31 @@
+{
+  "start_tickets": 1,
+  "min_account_days": 90,
+  "answer_days": 3,
+  "review_days": 7,
+  "confirm_days": 7,
+  "max_passes": 3,
+  "min_review_chars": 200,
+  "ai_only_earns_ticket": false,
+  "pass_reasons": ["重すぎる", "端末がない", "ジャンル外", "時間がない", "その他"],
+  "genres": [
+    {
+      "id": "app-use",
+      "name": "アプリの使い心地",
+      "minutes": 30,
+      "checklist": ["確かめた端末とブラウザ", "最初に迷った所", "途中で止まった所", "良かった所", "直すとよい所（優先の高い順）"]
+    },
+    {
+      "id": "code",
+      "name": "アプリのコード",
+      "minutes": 45,
+      "checklist": ["読んだ範囲（ファイル）", "危ない書き方", "わかりにくい所", "良かった所", "直し方の提案"]
+    },
+    {
+      "id": "docs",
+      "name": "説明書・記事",
+      "minutes": 30,
+      "checklist": ["読んだ文書", "手順どおりに進めたか", "わかりにくい所", "間違いや言い過ぎ", "良かった所"]
+    }
+  ]
+}

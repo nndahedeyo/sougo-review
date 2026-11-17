@@ -1,0 +1,48 @@
+name: レビューを依頼する
+description: 券を1枚使って、自分のアプリをだれかに見てもらう
+title: "依頼："
+labels: ["依頼"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        自分のアプリを、ほかの開発者に見てもらいます。券を1枚使います（最初の1枚は配られています）。
+        ここで受けるのは、作り手だけが読む改善の意見です。アプリストアの星や、宣伝用の推薦文の交換には使えません。
+  - type: input
+    attributes:
+      label: アプリのリポジトリ
+      description: 自分のアカウントのリポジトリ（作り手であることの確認に使います）
+      placeholder: https://github.com/あなたの名前/アプリ
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: どの版か
+      description: リリースの番号、変更の番号、または公開しているページのアドレス
+      placeholder: v1.0 / https://〜
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: ジャンル
+      options:
+        - アプリの使い心地
+        - アプリのコード
+        - 説明書・記事
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 見てほしい点
+      description: 1つか2つに絞ると、引き受けてもらいやすくなります
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: AIだけのレビューを受けるか
+      description: 「いいえ」にすると、人が見たレビューだけを受けます
+      options:
+        - はい
+        - いいえ
+    validations:
+      required: true
