@@ -9,14 +9,16 @@ const W = parseInt(process.argv[2] || "400");
   const check = (l, c) => { if (!c) process.exitCode = 1; log.push((c ? "OK  " : "NG  ") + l); };
   await p.goto("file://" + path.resolve(__dirname, "..", "index.html") + "#demo");
   await p.fill("#nm", "nnda"); await p.click("[data-act=start]");
-  await p.waitForSelector("#idc"); await p.waitForTimeout(800);
-  check("名前だけで始められる", (await p.textContent("#idc")).includes("nnda"));
+  await p.waitForSelector("#wallet"); await p.waitForTimeout(800);
+  check("名前だけで始められる", (await p.textContent("#wallet")).includes("nnda"));
+  check("カードの見た目は出さない", !(await p.$(".idcard")));
+  check("券の数が見える", (await p.textContent("#tix")).trim() === "1");
   check("最初の券は1枚", await p.evaluate(() => __sr.S.users[__sr.me.pk] ? __sr.S.users[__sr.me.pk].tickets === 1 : true));
   check("見てあげる依頼が並ぶ", (await p.textContent(".two")).includes("件が待っています"));
   // 見てもらう
   await p.click("[data-act=ask]"); await p.waitForTimeout(350);
   await p.fill("#a-link", "https://github.com/nndahedeyo/zandaka"); await p.fill("#a-ask", "最初の画面で迷わないか");
-  await p.click('[data-chip=genre][data-v=use]'); await p.click("[data-act=send-ask]"); await p.waitForTimeout(300);
+  await p.click('[data-chip=genre][data-v=use]'); await p.click('[data-chip=want][data-v=ai]'); await p.fill("#a-ai", "Claude Opus 5.5"); await p.click("[data-act=send-ask]"); await p.waitForTimeout(300);
   check("依頼を出すと券が減る", await p.evaluate(() => __sr.S.users[__sr.me.pk].tickets === 0));
   await p.waitForTimeout(6500); await p.evaluate(() => __sr.act("dismiss"));
   await p.evaluate(() => { const r = Object.values(__sr.S.reqs).find(r => r.by === __sr.me.pk); return r && r.status; });
@@ -25,7 +27,7 @@ const W = parseInt(process.argv[2] || "400");
   await p.waitForTimeout(5200);
   check("見本の参加者が引き受けて届けてくれる", (await p.textContent("#lists")).includes("届きました"));
   await p.click('.item[data-act=judge]'); await p.waitForTimeout(350);
-  check("届いたレビューが読める", (await p.textContent("#pbody")).includes("確かめた環境"));
+  check("届いたレビューが読める（使ったAIも）", (await p.textContent("#pbody")).includes("確かめた環境") && (await p.textContent("#pbody")).includes("使ったAI"));
   await p.click("[data-act=judge-ok]"); await p.waitForTimeout(300);
   check("役に立ったで完了", (await p.textContent("#lists")).includes("役に立った"));
   // 見てあげる

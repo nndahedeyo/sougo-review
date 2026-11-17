@@ -8,7 +8,6 @@
     holdMax: 2,        // 同時に引き受けられる数
     writeDays: 7,      // 引き受けてから届けるまで
     judgeDays: 7,      // 届いてから返事がなければ「役に立った」
-    aiEarns: false,    // AIだけで書いたレビューで券が増えるか
   };
   const GENRES = [
     {id: "use", name: "使い心地", min: 30, fields: ["確かめた環境", "迷った・止まった所", "よかった所", "直すとよい所"]},
@@ -17,7 +16,8 @@
     {id: "look", name: "見た目", min: 20, fields: ["見た環境", "気になった所", "よかった所", "直すとよい所"]},
     {id: "idea", name: "考え", min: 30, fields: ["読んだもの", "穴や心配な所", "よかった所", "提案"]},
   ];
-  const KINDS = ["人", "人+AI", "AI"];
+  // 依頼する人の希望（だれに見てほしいか）。届いたレビューの券の数は、だれが書いても同じ1枚
+  const WANTS = ["any", "human", "ai"];
   const gen = id => GENRES.find(g => g.id === id);
 
   function reduce(events, now) {
@@ -35,7 +35,7 @@
       r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
       const tk = U(r.taker), by = U(r.by);
       tk.gave++; by.got++;
-      if (ok && (r.kind !== "AI" || R.aiEarns)) tk.tickets++;
+      if (ok) tk.tickets++;
       tk.lastReviewed = r.by;
     }
     for (const e of evs) {
@@ -48,7 +48,7 @@
       if (c.t === "hello" && typeof c.name === "string") { u.name = c.name.slice(0, 24); ok = true; }
       else if (c.t === "ask" && u.tickets >= 1 && gen(c.genre) && /^https:\/\/\S+$/.test(c.link || "") && (c.ask || "").trim()) {
         u.tickets--;
-        S.reqs[e.id] = {id: e.id, by: e.pubkey, at: e.created_at, link: c.link.slice(0, 300), genre: c.genre, ask: String(c.ask).slice(0, 400), ai: c.ai !== false, status: "open", taker: null};
+        S.reqs[e.id] = {id: e.id, by: e.pubkey, at: e.created_at, link: c.link.slice(0, 300), genre: c.genre, ask: String(c.ask).slice(0, 400), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
         ok = true;
       }
       else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; u.tickets++; ok = true; }
@@ -56,8 +56,8 @@
         r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; ok = true;
       }
       else if (c.t === "release" && r && r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; ok = true; }
-      else if (c.t === "give" && r && r.status === "taken" && r.taker === e.pubkey && KINDS.includes(c.kind) && (r.ai || c.kind !== "AI") && c.body && typeof c.body === "object") {
-        r.status = "given"; r.givenAt = e.created_at; r.kind = c.kind; r.body = c.body; r.reviewId = e.id; ok = true;
+      else if (c.t === "give" && r && r.status === "taken" && r.taker === e.pubkey && c.body && typeof c.body === "object") {
+        r.status = "given"; r.givenAt = e.created_at; r.used = String(c.used || "").slice(0, 60); r.body = c.body; r.reviewId = e.id; ok = true;
       }
       else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
       S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
@@ -66,6 +66,6 @@
     return S;
   }
 
-  const api = {reduce, R, GENRES, KINDS, gen, DAY};
+  const api = {reduce, R, GENRES, WANTS, gen, DAY};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Rules = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
