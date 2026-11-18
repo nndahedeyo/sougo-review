@@ -100,7 +100,7 @@ let events = [], S = null, note = null, skipped = new Set(store.get("sougo.skip"
 /* ---------- 出来事の置き場所 ---------- */
 const bucket = () => mode === "demo" ? "sougo.demo" : "sougo.live";
 function loadEvents() { events = store.get(bucket(), []); }
-function saveEvents() { store.set(bucket(), events.slice(-3000)); }
+function saveEvents() { store.set(bucket(), events.slice(-8000)); }
 function addEvent(ev) {
   if (events.some(e => e.id === ev.id)) return false;
   events.push(ev); saveEvents(); return true;
@@ -123,8 +123,13 @@ function connect() {
   for (const url of RELAYS) {
     try {
       const ws = new WebSocket(url);
-      ws.onopen = () => { opened++; if (mode !== "live") toLive(); ws.send(JSON.stringify(["REQ", "sr", {kinds: [KIND], "#t": [TAG], limit: 2000}])); flush(); };
-      ws.onmessage = m => { try { const d = JSON.parse(m.data); if (d[0] === "EVENT") accept(d[2]); } catch (e) {} };
+      ws.onopen = () => { opened++; if (mode !== "live") toLive(); ws.send(JSON.stringify(["REQ", "sr", {kinds: [KIND], "#t": [TAG], limit: 500}])); flush(); };
+      // 古い出来事もすべて読む（500件ずつさかのぼる）。全部読まないと、券の数が人によってずれる
+      let oldest = Infinity, got = 0, page = 0;
+      ws.onmessage = m => { try { const d = JSON.parse(m.data);
+        if (d[0] === "EVENT") { got++; if (d[2] && d[2].created_at < oldest) oldest = d[2].created_at; accept(d[2]); }
+        if (d[0] === "EOSE" && got >= 500 && page < 40) { page++; got = 0; ws.send(JSON.stringify(["REQ", "sr" + page, {kinds: [KIND], "#t": [TAG], until: oldest - 1, limit: 500}])); }
+      } catch (e) {} };
       ws.onclose = () => { setTimeout(netStatus, 50); };
       ws.onerror = () => {};
       sockets.push(ws);
@@ -191,7 +196,7 @@ function demoReact(c, ev) {
 }
 
 /* ---------- 画面 ---------- */
-const nameOf = pk => (S.users[pk] && S.users[pk].name) || pk.slice(0, 8);
+const nameOf = pk => `${(S.users[pk] && S.users[pk].name) || "名前なし"}#${pk.slice(0, 4)}`;   // 同じ名前のなりすましと見分けるため、番号の頭4文字をつける
 const mine = () => S.users[me.pk] || {tickets: Rules.R.start, gave: 0, got: 0};
 const shortLink = l => l.replace(/^https:\/\//, "").slice(0, 48);
 function todo() {
@@ -213,6 +218,11 @@ function linkWarn(l) {
   return out;
 }
 const host = l => { try { return new URL(l).host; } catch (e) { return ""; } };
+// 依頼した人が、届いたレビューにどう返してきたか（見てあげる側が判断できるように）
+function habit(pk) {
+  const u = S.users[pk] || {}; if (!u.judged) return "";
+  return `<span class="small">この人は届いたレビューの ${Math.round(100 * u.judgedOk / u.judged)}% に「役に立った」を返しています（${u.judged}件）</span>`;
+}
 function candidates() {
   return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.pk && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.pk).sort((a, b) => a.at - b.at);
 }
@@ -261,6 +271,7 @@ let openId = null, openKind = null, pick = {genre: "use", want: "any"};
 function openPanel(kind, id, html) { openKind = kind; openId = id || "x"; $("#pbody").innerHTML = html; const p = $("#panel"); p.style.transform = ""; p.classList.add("on"); p.setAttribute("aria-hidden", "false"); $(".panel .body").scrollTop = 0; }
 function closePanel() { const p = $("#panel"); p.style.transform = ""; p.classList.remove("on"); p.setAttribute("aria-hidden", "true"); openId = openKind = null; }
 function refreshPanel() {
+  if (openKind === "write") { const r = S.reqs[openId]; if (r && r.taker !== me.pk && !$("#w-lost")) { const m = $("#w-msg"); if (m) { m.id = "w-lost"; m.textContent = "この依頼は、ほかの人が先に引き受けていたか、期限が過ぎました。届けても数えられません。"; } } }
   // 開いている画面の中身が古くなったときだけ描き直す（入力中の欄には触らない）
   if (openKind === "mine" || openKind === "judge") { const r = S.reqs[openId]; if (r) $("#pbody").innerHTML = openKind === "judge" && r.status === "given" ? judgeHtml(r) : mineHtml(r); }
   if (openKind === "give" && !$("#pbody textarea")) $("#pbody").innerHTML = giveHtml();
@@ -276,7 +287,8 @@ function askHtml() {
       <input id="a-ai" placeholder="AIの名前や版（あれば）例：Claude Opus 5.5" autocomplete="off" style="margin-top:8px;${pick.want === "ai" ? "" : "display:none"}"></div>
     <button type="button" class="primary wide" data-act="send-ask" ${mine().tickets < 1 ? "disabled" : ""}>出す（券を1枚使う）</button>
     ${mine().tickets < 1 ? `<p class="small" style="margin:0">券がありません。だれかのレビューをすると、券が増えます。</p>` : ""}
-    <p class="small" style="margin:0">ここで受けるのは、作り手だけが読む改善の意見です。ストアの星や宣伝用の推薦文には使えません。</p>`;
+    <p class="small" style="margin:0">依頼もレビューも、だれでも読める場所に公開されます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。</p>
+    <p class="small" style="margin:0">ここで受けるのは改善のための意見です。ストアの星や宣伝用の推薦文には使えません。</p>`;
 }
 const wantText = r => r.want === "human" ? "人の意見を望んでいます" : r.want === "ai" ? `AIでの分析を望んでいます${r.aiName ? `（${r.aiName}）` : ""}` : "";
 function giveHtml() {
@@ -288,11 +300,12 @@ function giveHtml() {
       <div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
       <span class="small">行き先：${esc(host(r.link))}</span>
       ${wantText(r) ? `<span class="small">${esc(wantText(r))}</span>` : ""}
+      ${habit(r.by)}
       ${(S.users[r.by] || {}).gave ? "" : `<span class="pill" style="justify-self:start">はじめての依頼</span>`}
       ${linkWarn(r.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}</div>
     <p class="small" style="margin:0">見るときは、ウォレットをつながない・署名しない・かぎや個人情報を入れない。おかしいと思ったら、引き受けずに閉じてください。</p>
     <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">ほかを見る<small>見送っても何も減らない</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">引き受ける<small>${Rules.R.writeDays}日以内に書く</small></button></div>
-    <p class="small" style="margin:0;text-align:center">残り ${list.length - 1}件 ・ ${mine().gave >= 1 ? `<button type="button" class="link" data-act="flag-ask" data-id="${r.id}" style="color:var(--warm)">危ない依頼として知らせる</button>` : "危ない依頼は、1件見てあげると知らせられるようになります"}</p>`;
+    <p class="small" style="margin:0;text-align:center">残り ${list.length - 1}件 ・ ${(mine().helped || 0) >= 1 ? `<button type="button" class="link" data-act="flag-ask" data-id="${r.id}" style="color:var(--warm)">危ない依頼として知らせる</button>` : "危ない依頼は、レビューで「役に立った」をもらうと知らせられるようになります"}</p>`;
 }
 function writeHtml(r) {
   const g = Rules.gen(r.genre);
@@ -325,8 +338,9 @@ const HOW = [
   ["人もAIも", "人が見ても、AIを使って見ても、券は同じ1枚です。依頼する人は「人の意見がほしい」「このAIに見てほしい」と希望を書けます。見てあげる人は、使ったAIがあれば書き添えます。"],
   ["お返しの褒め合いをしない", "直前にあなたを見てくれた人の依頼は、あなたには回ってきません。"],
   ["期限", `引き受けたら${Rules.R.writeDays}日以内に届けます。届かなければ、依頼はほかの人に戻ります。届いて${Rules.R.judgeDays}日返事がなければ「役に立った」になります。`],
+  ["公開されます", "依頼の内容もレビューも、だれでも読める場所に置かれます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。"],
   ["運営がいない", "依頼もレビューも、あなたの端末で署名され、だれでも使える中継（Nostrのリレー）に置かれます。券の数は、すべての出来事から、だれの画面でも同じ決まりで数え直されます。だれも勝手に増やしたり消したりできません。"],
-  ["危ないものから守る", "見てあげるときは、ウォレットをつながない・署名しない・かぎや個人情報を入れないでください。悪意のあるアプリへ誘導する依頼は、1件以上見てあげたことのある人が「危ない」と知らせられ、2人から知らせが付くと、だれの画面からも消えます。ひどいレビューや危ないレビューは、依頼した人が知らせると、券が入りません。"],
+  ["危ないものから守る", "見てあげるときは、ウォレットをつながない・署名しない・かぎや個人情報を入れないでください。悪意のあるアプリへ誘導する依頼は、レビューで「役に立った」をもらったことのある人が「危ない」と知らせられ、2人から知らせが付くと、だれの画面からも消えます。ひどいレビューや危ないレビューは、依頼した人が知らせると、券が入りません。"],
   ["使わないこと", "ストアの星や宣伝用の推薦文の交換、個人情報が要るもの、お金のやり取りには使いません。"],
 ];
 const howHtml = () => `<h2>しくみ</h2><div class="how" style="display:grid;gap:18px">${HOW.map(([t, b]) => `<div><h4>${t}</h4><p>${b}</p></div>`).join("")}</div>`;

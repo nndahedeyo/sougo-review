@@ -8,6 +8,8 @@
     holdMax: 2,        // 同時に引き受けられる数
     writeDays: 7,      // 引き受けてから届けるまで
     judgeDays: 7,      // 届いてから返事がなければ「役に立った」
+    newHoldMax: 1,     // まだ1件も「役に立った」をもらっていない人が同時に引き受けられる数（引き受けて放置する嫌がらせを防ぐ）
+    futureSkew: 600,   // 未来の時刻の出来事は、この秒数より先なら無視する
     hideFlags: 2,      // 「危ない」がこの人数（見てあげた実績のある人）から付いた依頼は、だれの画面からも消える
   };
   const GENRES = [
@@ -22,13 +24,14 @@
   const gen = id => GENRES.find(g => g.id === id);
 
   function reduce(events, now) {
-    const evs = events.slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
+    // 未来の時刻をつけた出来事は数えない（時刻をずらして順番を横取りするのを防ぐ）
+    const evs = events.filter(e => e.created_at <= now + R.futureSkew).slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
     const S = {users: {}, reqs: {}, log: []};
     const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, helped: 0, got: 0, judged: 0, judgedOk: 0, flaggedAsks: 0, flaggedReviews: 0, lastReviewed: null, joined: null});
     const holding = pk => Object.values(S.reqs).filter(r => r.status === "taken" && r.taker === pk).length;
     function tick(t) {   // 時間で決まる移り変わり
       for (const r of Object.values(S.reqs)) {
-        if (r.status === "taken" && t > r.takenAt + R.writeDays * DAY) { r.status = "open"; r.taker = null; r.lapsed = (r.lapsed || 0) + 1; }
+        if (r.status === "taken" && t > r.takenAt + R.writeDays * DAY) { (r.lapsedBy = r.lapsedBy || []).push(r.taker); U(r.taker).lapses = (U(r.taker).lapses || 0) + 1; r.status = "open"; r.taker = null; r.lapsed = (r.lapsed || 0) + 1; }
         else if (r.status === "given" && t > r.givenAt + R.judgeDays * DAY) finish(r, true, r.givenAt + R.judgeDays * DAY, true);
       }
     }
@@ -54,7 +57,8 @@
         ok = true;
       }
       else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; u.tickets++; ok = true; }
-      else if (c.t === "take" && r && r.status === "open" && r.by !== e.pubkey && U(r.by).lastReviewed !== e.pubkey && holding(e.pubkey) < R.holdMax) {
+      else if (c.t === "take" && r && r.status === "open" && r.by !== e.pubkey && e.created_at >= r.at && U(r.by).lastReviewed !== e.pubkey
+               && !(r.lapsedBy || []).includes(e.pubkey) && holding(e.pubkey) < (u.helped >= 1 ? R.holdMax : R.newHoldMax)) {
         r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; ok = true;
       }
       else if (c.t === "release" && r && r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; ok = true; }
@@ -62,8 +66,8 @@
         r.status = "given"; r.givenAt = e.created_at; r.used = String(c.used || "").slice(0, 60); r.body = c.body; r.reviewId = e.id; ok = true;
       }
       else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
-      // 危ない依頼（悪意のあるアプリへの誘導など）：見てあげた実績のある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
-      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.gave >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)) {
+      // 危ない依頼（悪意のあるアプリへの誘導など）：「役に立った」をもらったことのある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
+      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.helped >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)) {
         (r.flags = r.flags || []).push(e.pubkey); ok = true;
         if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
       }
