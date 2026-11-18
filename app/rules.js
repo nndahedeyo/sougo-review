@@ -39,7 +39,7 @@
       r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
       const tk = U(r.taker), by = U(r.by);
       tk.gave++; by.got++;
-      // 役に立った → 券1枚。もう一歩 → 半券（0.5枚）。半券2枚で券1枚になる。危ない・ひどい内容として知らされたものは何もなし
+      // 役に立った → 券1枚。いまひとつ → 半券（0.5枚）。半券2枚で券1枚になる。危ない・ひどい内容として知らされたものは何もなし
       if (ok) { tk.tickets++; tk.helped++; } else if (!r.flaggedReview) { tk.tickets += 0.5; tk.halves = (tk.halves || 0) + 1; }
       if (!auto) { by.judged++; if (ok) by.judgedOk++; }
       tk.lastReviewed = r.by;
