@@ -191,6 +191,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
     holdMax: 2,        // 同時に引き受けられる数
     writeDays: 7,      // 引き受けてから届けるまで
     judgeDays: 7,      // 届いてから返事がなければ「役に立った」
+    hideFlags: 2,      // 「危ない」がこの人数（見てあげた実績のある人）から付いた依頼は、だれの画面からも消える
   };
   const GENRES = [
     {id: "use", name: "使い心地", min: 30, fields: ["確かめた環境", "迷った・止まった所", "よかった所", "直すとよい所"]},
@@ -206,7 +207,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
   function reduce(events, now) {
     const evs = events.slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
     const S = {users: {}, reqs: {}, log: []};
-    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, got: 0, lastReviewed: null, joined: null});
+    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, helped: 0, got: 0, judged: 0, judgedOk: 0, flaggedAsks: 0, flaggedReviews: 0, lastReviewed: null, joined: null});
     const holding = pk => Object.values(S.reqs).filter(r => r.status === "taken" && r.taker === pk).length;
     function tick(t) {   // 時間で決まる移り変わり
       for (const r of Object.values(S.reqs)) {
@@ -218,7 +219,8 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
       r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
       const tk = U(r.taker), by = U(r.by);
       tk.gave++; by.got++;
-      if (ok) tk.tickets++;
+      if (ok) { tk.tickets++; tk.helped++; }
+      if (!auto) { by.judged++; if (ok) by.judgedOk++; }
       tk.lastReviewed = r.by;
     }
     for (const e of evs) {
@@ -243,6 +245,15 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
         r.status = "given"; r.givenAt = e.created_at; r.used = String(c.used || "").slice(0, 60); r.body = c.body; r.reviewId = e.id; ok = true;
       }
       else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
+      // 危ない依頼（悪意のあるアプリへの誘導など）：見てあげた実績のある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
+      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.gave >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)) {
+        (r.flags = r.flags || []).push(e.pubkey); ok = true;
+        if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
+      }
+      // 危ない・ひどいレビュー：依頼した人がつける。「いまひとつ」と同じく券は入らず、書いた人に印が残る
+      else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === e.pubkey) {
+        finish(r, false, e.created_at); r.flaggedReview = true; U(r.taker).flaggedReviews++; ok = true;
+      }
       S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
     }
     tick(now);
@@ -377,7 +388,16 @@ function todo() {
   return out;
 }
 function myAsks() { return Object.values(S.reqs).filter(r => r.by === me.pk && r.status !== "cancelled").sort((a, b) => b.at - a.at).slice(0, 6); }
-const ST = {open: "待っています", taken: "見てもらっています", given: "届きました", done: "完了"};
+const ST = {open: "待っています", taken: "見てもらっています", given: "届きました", done: "完了", hidden: "危ない依頼として閉じられました"};
+const helpedText = () => { const u = mine(); return u.gave ? `見てあげた ${u.gave}件・役に立った ${u.helped || 0}件` : "まだ見てあげたことはありません"; };
+// 見てほしいもののリンクの注意（開く前に知らせる）
+function linkWarn(l) {
+  const out = [];
+  if (/\.(exe|msi|apk|dmg|pkg|ipa|zip|rar|7z|bat|sh|scr|jar)(\?|#|$)/i.test(l)) out.push("ダウンロードのリンクです。動かす前に、中身を確かめてください。");
+  if (/(bit\.ly|tinyurl|t\.co|goo\.gl|is\.gd|cutt\.ly)\//i.test(l)) out.push("短縮リンクです。行き先が分かりません。");
+  return out;
+}
+const host = l => { try { return new URL(l).host; } catch (e) { return ""; } };
 function candidates() {
   return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.pk && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.pk).sort((a, b) => a.at - b.at);
 }
@@ -395,7 +415,7 @@ function render() {
   if (!S) { m.innerHTML = `<p class="empty">読み込んでいます…</p>`; return; }
   const c = candidates().length;
   m.innerHTML = `${HERO}
-    <div class="wallet" id="wallet"><span class="who">${esc(me.name)} さん${mode === "demo" ? "（見本）" : ""}</span><span class="tk"><span>券</span><b id="tix">${mine().tickets}</b><span>枚</span></span></div>
+    <div class="wallet" id="wallet"><span class="who">${esc(me.name)} さん${mode === "demo" ? "（見本）" : ""}<br><span class="small" id="helped">${helpedText()}</span></span><span class="tk"><span>券</span><b id="tix">${mine().tickets}</b><span>枚</span></span></div>
     <div id="note">${noteHtml()}</div>
     <div class="two"><button type="button" class="primary" data-act="ask">見てもらう<small>券を1枚使う</small></button><button type="button" data-act="give">見てあげる<small>${c ? `${c}件が待っています` : "いまは待っている依頼がありません"}</small></button></div>
     <div id="lists">${listsHtml()}</div>`;
@@ -416,6 +436,8 @@ function live() {
   const c = candidates().length; $(".two button:last-child small").textContent = c ? `${c}件が待っています` : "いまは待っている依頼がありません";
   if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: "券が1枚増えました。あなたのレビューが役に立ちました。"}; $("#note").innerHTML = noteHtml(); }
   lastTix = u.tickets;
+  const h = $("#helped"); if (h) h.textContent = helpedText();
+  if (u.gave >= 1 && !store.get("sougo.backed", 0) && !store.get("sougo.nudged", 0) && !note) { store.set("sougo.nudged", 1); note = {m: "記録がたまり始めました。「記録とかぎ」からかぎを書き写しておくと、端末を替えても続けられます。"}; $("#note").innerHTML = noteHtml(); }
   if (openId) refreshPanel();
 }
 
@@ -449,9 +471,13 @@ function giveHtml() {
   return `<h2>見てあげる</h2>
     <div class="job"><div style="display:flex;justify-content:space-between"><span class="pill">${esc(g.name)}・目安${g.min}分</span><span class="small">${esc(nameOf(r.by))}さん</span></div>
       <div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
-      ${wantText(r) ? `<span class="small">${esc(wantText(r))}</span>` : ""}</div>
+      <span class="small">行き先：${esc(host(r.link))}</span>
+      ${wantText(r) ? `<span class="small">${esc(wantText(r))}</span>` : ""}
+      ${(S.users[r.by] || {}).gave ? "" : `<span class="pill" style="justify-self:start">はじめての依頼</span>`}
+      ${linkWarn(r.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}</div>
+    <p class="small" style="margin:0">見るときは、ウォレットをつながない・署名しない・かぎや個人情報を入れない。おかしいと思ったら、引き受けずに閉じてください。</p>
     <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">ほかを見る<small>見送っても何も減らない</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">引き受ける<small>${Rules.R.writeDays}日以内に書く</small></button></div>
-    <p class="small" style="margin:0;text-align:center">残り ${list.length - 1}件</p>`;
+    <p class="small" style="margin:0;text-align:center">残り ${list.length - 1}件 ・ ${mine().gave >= 1 ? `<button type="button" class="link" data-act="flag-ask" data-id="${r.id}" style="color:var(--warm)">危ない依頼として知らせる</button>` : "危ない依頼は、1件見てあげると知らせられるようになります"}</p>`;
 }
 function writeHtml(r) {
   const g = Rules.gen(r.genre);
@@ -469,7 +495,8 @@ const reviewBody = r => `<div class="rv">${Object.entries(r.body || {}).map(([k,
 function judgeHtml(r) {
   return `<h2>届いたレビュー</h2><div class="job"><span class="small">${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</span>${reviewBody(r)}</div>
     <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">いまひとつ</button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">役に立った<small>相手に券が1枚</small></button></div>
-    <p class="small" style="margin:0">${Rules.R.judgeDays}日たっても返事がなければ「役に立った」になります。</p>`;
+    <p class="small" style="margin:0">${Rules.R.judgeDays}日たっても返事がなければ「役に立った」になります。</p>
+    <button type="button" class="link" data-act="flag-review" data-id="${r.id}" style="color:var(--warm)">危ない・ひどい内容として知らせる（券は入らない）</button>`;
 }
 function mineHtml(r) {
   return `<h2>あなたの依頼</h2><div class="job"><span class="pill" style="justify-self:start">${esc(Rules.gen(r.genre).name)}・${r.status === "done" ? (r.ok ? "役に立った" : "いまひとつ") : ST[r.status]}</span><div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
@@ -484,15 +511,19 @@ const HOW = [
   ["お返しの褒め合いをしない", "直前にあなたを見てくれた人の依頼は、あなたには回ってきません。"],
   ["期限", `引き受けたら${Rules.R.writeDays}日以内に届けます。届かなければ、依頼はほかの人に戻ります。届いて${Rules.R.judgeDays}日返事がなければ「役に立った」になります。`],
   ["運営がいない", "依頼もレビューも、あなたの端末で署名され、だれでも使える中継（Nostrのリレー）に置かれます。券の数は、すべての出来事から、だれの画面でも同じ決まりで数え直されます。だれも勝手に増やしたり消したりできません。"],
+  ["危ないものから守る", "見てあげるときは、ウォレットをつながない・署名しない・かぎや個人情報を入れないでください。悪意のあるアプリへ誘導する依頼は、1件以上見てあげたことのある人が「危ない」と知らせられ、2人から知らせが付くと、だれの画面からも消えます。ひどいレビューや危ないレビューは、依頼した人が知らせると、券が入りません。"],
   ["使わないこと", "ストアの星や宣伝用の推薦文の交換、個人情報が要るもの、お金のやり取りには使いません。"],
 ];
 const howHtml = () => `<h2>しくみ</h2><div class="how" style="display:grid;gap:18px">${HOW.map(([t, b]) => `<div><h4>${t}</h4><p>${b}</p></div>`).join("")}</div>`;
 function meHtml() {
   const mineLog = S.log.filter(l => l.pk === me.pk).slice(-30).reverse();
-  const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した"};
+  const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した", flag: "危ないと知らせた"};
+  const u = mine();
   return `<h2>記録とかぎ</h2>
+    <div class="job"><b>あなたの記録</b><span>${helpedText()}</span><span class="small">見てもらった ${u.got || 0}件${u.judged ? `・届いたレビューに「役に立った」を返した割合 ${Math.round(100 * u.judgedOk / u.judged)}%` : ""}</span>
+      <span class="small">この記録は、このかぎに結びついています。かぎを書き写しておけば、端末を替えても、ほかの場所でも続けられます。</span></div>
     <div class="job"><b>この端末のかぎ</b><p class="small" style="margin:0">あなたのカードは、この端末の中のかぎだけで動いています。ほかの端末で続けるときや、端末を替えるときは、下のかぎを書き写して保管してください。人に見せると、なりすまされます。</p>
-      <details><summary class="small" style="cursor:pointer">かぎを表示する</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
+      <details ontoggle="if(this.open){try{localStorage.setItem('sougo.backed','1')}catch(e){}}"><summary class="small" style="cursor:pointer">かぎを表示する</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
       <label>別の端末のかぎで続ける<input id="imp" placeholder="64文字のかぎ" autocomplete="off"></label><button type="button" data-act="import">このかぎに切り替える</button></div>
     <div><h3 style="margin-top:0">あなたの出来事</h3>${mineLog.length ? mineLog.map(l => `<div class="small" style="display:flex;justify-content:space-between;padding:6px 2px;border-top:1px solid var(--line)"><span>${T[l.t] || l.t}${l.ok ? "" : "（決まりに合わず無効）"}</span><span>${new Date(l.at * 1000).toLocaleString("ja-JP")}</span></div>`).join("") : `<p class="empty">まだありません。</p>`}</div>
     <p class="small mono" style="margin:0">あなたの番号：${me.pk}</p>`;
@@ -549,6 +580,8 @@ async function act(a, id) {
   }
   if ((a === "judge-ok" || a === "judge-no") && r) { await emit({t: "judge", req: id, ok: a === "judge-ok"}); closePanel(); note = {m: "返事をしました。"}; return render(); }
   if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: "取り下げました。券が戻りました。"}; return render(); }
+  if (a === "flag-ask" && r) { await emit({t: "flag", what: "ask", req: id}); skipped.add(id); store.set("sougo.skip", [...skipped]); note = {m: "知らせました。ほかにも知らせる人がいると、この依頼はだれの画面からも消えます。"}; render(); return openPanel("give", null, giveHtml()); }
+  if (a === "flag-review" && r) { await emit({t: "flag", what: "review", req: id}); closePanel(); note = {m: "知らせました。このレビューには券が入りません。"}; return render(); }
   if (a === "import") {
     const k = ($("#imp").value || "").trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(k)) { $("#imp").style.borderColor = "var(--warm)"; return; }

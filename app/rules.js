@@ -8,6 +8,7 @@
     holdMax: 2,        // 同時に引き受けられる数
     writeDays: 7,      // 引き受けてから届けるまで
     judgeDays: 7,      // 届いてから返事がなければ「役に立った」
+    hideFlags: 2,      // 「危ない」がこの人数（見てあげた実績のある人）から付いた依頼は、だれの画面からも消える
   };
   const GENRES = [
     {id: "use", name: "使い心地", min: 30, fields: ["確かめた環境", "迷った・止まった所", "よかった所", "直すとよい所"]},
@@ -23,7 +24,7 @@
   function reduce(events, now) {
     const evs = events.slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
     const S = {users: {}, reqs: {}, log: []};
-    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, got: 0, lastReviewed: null, joined: null});
+    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, helped: 0, got: 0, judged: 0, judgedOk: 0, flaggedAsks: 0, flaggedReviews: 0, lastReviewed: null, joined: null});
     const holding = pk => Object.values(S.reqs).filter(r => r.status === "taken" && r.taker === pk).length;
     function tick(t) {   // 時間で決まる移り変わり
       for (const r of Object.values(S.reqs)) {
@@ -35,7 +36,8 @@
       r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
       const tk = U(r.taker), by = U(r.by);
       tk.gave++; by.got++;
-      if (ok) tk.tickets++;
+      if (ok) { tk.tickets++; tk.helped++; }
+      if (!auto) { by.judged++; if (ok) by.judgedOk++; }
       tk.lastReviewed = r.by;
     }
     for (const e of evs) {
@@ -60,6 +62,15 @@
         r.status = "given"; r.givenAt = e.created_at; r.used = String(c.used || "").slice(0, 60); r.body = c.body; r.reviewId = e.id; ok = true;
       }
       else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
+      // 危ない依頼（悪意のあるアプリへの誘導など）：見てあげた実績のある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
+      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.gave >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)) {
+        (r.flags = r.flags || []).push(e.pubkey); ok = true;
+        if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
+      }
+      // 危ない・ひどいレビュー：依頼した人がつける。「いまひとつ」と同じく券は入らず、書いた人に印が残る
+      else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === e.pubkey) {
+        finish(r, false, e.created_at); r.flaggedReview = true; U(r.taker).flaggedReviews++; ok = true;
+      }
       S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
     }
     tick(now);

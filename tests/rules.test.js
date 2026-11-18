@@ -53,3 +53,18 @@ test("同じ出来事の並びなら、順番が違っても同じ結果", () =>
   const a = ask("A", 1); const e = [a, ev("B", 2, {t: "take", req: a.id}), ev("C", 2, {t: "take", req: a.id})];
   assert.equal(reduce(e, 3).reqs[a.id].taker, reduce(e.slice().reverse(), 3).reqs[a.id].taker);
 });
+test("危ない依頼：見てあげた実績のある2人が知らせると消える（実績のない人の知らせは数えない）", () => {
+  const x = ask("X", 1), done = ask("Z", 1);
+  const e = [done, ev("B", 2, {t: "take", req: done.id}), ev("B", 3, {t: "give", req: done.id, body}), ev("Z", 4, {t: "judge", req: done.id, ok: true}),
+             ask("Y", 1)];
+  const y = e[e.length - 1];
+  e.push(ev("C", 5, {t: "take", req: y.id}), ev("C", 6, {t: "give", req: y.id, body}), ev("Y", 7, {t: "judge", req: y.id, ok: false}));
+  e.push(x, ev("N", 8, {t: "flag", what: "ask", req: x.id}), ev("B", 9, {t: "flag", what: "ask", req: x.id}));
+  let S = reduce(e, 10); assert.equal(S.reqs[x.id].status, "open");
+  e.push(ev("C", 11, {t: "flag", what: "ask", req: x.id}));
+  S = reduce(e, 12); assert.equal(S.reqs[x.id].status, "hidden"); assert.equal(S.users.X.flaggedAsks, 1); assert.equal(S.users.X.tickets, 0);
+});
+test("危ないレビュー：依頼した人が知らせると券は入らず、書いた人に印が残る", () => {
+  const a = ask("A", 1); const e = [a, ev("B", 2, {t: "take", req: a.id}), ev("B", 3, {t: "give", req: a.id, body}), ev("A", 4, {t: "flag", what: "review", req: a.id})];
+  const S = reduce(e, 5); assert.equal(S.users.B.tickets, 1); assert.equal(S.users.B.flaggedReviews, 1); assert.equal(S.reqs[a.id].status, "done");
+});

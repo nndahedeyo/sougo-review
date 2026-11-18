@@ -33,6 +33,7 @@ const W = parseInt(process.argv[2] || "400");
   // 見てあげる
   await p.click("[data-act=give]"); await p.waitForTimeout(350);
   const first = await p.textContent("#pbody .ask");
+  check("はじめての依頼の印と、見るときの注意が出る", (await p.textContent("#pbody")).includes("はじめての依頼") && (await p.textContent("#pbody")).includes("ウォレットをつながない"));
   await p.click("[data-act=skip]"); await p.waitForTimeout(200);
   check("見送ると次の依頼に移る（何も減らない）", (await p.textContent("#pbody .ask")) !== first);
   await p.click("[data-act=take]"); await p.waitForTimeout(400);
@@ -52,6 +53,7 @@ const W = parseInt(process.argv[2] || "400");
   await p.waitForTimeout(400);
   check("横に払うと戻る", !(await p.evaluate(() => document.getElementById("panel").classList.contains("on"))));
   await p.click("[data-act=me]"); await p.waitForTimeout(350);
+  check("あなたの記録が見える", (await p.textContent("#pbody")).includes("あなたの記録") && (await p.textContent("#pbody")).includes("見てあげた 1件"));
   check("記録に自分の出来事が並ぶ", (await p.textContent("#pbody")).includes("依頼") && (await p.textContent("#pbody")).includes("届けた"));
   await p.click("[data-act=back]"); await p.waitForTimeout(450);
   check("横にはみ出さない", !(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));
