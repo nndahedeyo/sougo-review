@@ -70,7 +70,9 @@ def stamped_ids():
 def main():
     OUT.mkdir(exist_ok=True)
     found = {}
-    ok = asyncio.run(asyncio.wait_for(asyncio.gather(*(fetch(u, found) for u in RELAYS)), timeout=600))
+    async def run_all():
+        return await asyncio.wait_for(asyncio.gather(*(fetch(u, found) for u in RELAYS)), timeout=600)
+    ok = asyncio.run(run_all())
     print(f"relays ok: {sum(ok)}/{len(RELAYS)}, events: {len(found)}")
     new = sorted(set(found) - stamped_ids())
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
