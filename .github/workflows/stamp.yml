@@ -1,0 +1,35 @@
+name: stamp
+
+# 毎日1回、相互レビューの出来事をビットコインに刻む（OpenTimestamps、無料）
+on:
+  schedule:
+    - cron: "37 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stamp
+  cancel-in-progress: false
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install opentimestamps-client==0.7.2 websockets==13.1
+      - name: 集めて刻む
+        run: python scripts/stamp.py
+      - name: 記録を残す
+        run: |
+          git add stamps
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git commit -m "記録を刻む $(date -u +%F)"
+            git pull --rebase -q && git push -q
+          fi

@@ -80,3 +80,11 @@ test("期限切れにした人は同じ依頼を引き受け直せない・実�
   e.push(ev("B", 8 * DAY, {t: "take", req: a.id}));
   S = reduce(e, 8 * DAY + 1); assert.equal(S.reqs[a.id].status, "open"); assert.equal(S.users.B.lapses, 1);
 });
+test("もう一歩は半券（0.5枚）、2つで1枚。知らせたレビューには何も入らない", () => {
+  const a = ask("A", 1), b = ask("C", 1), c = ask("D", 1);
+  const e = [a, b, c, ev("B", 2, {t: "take", req: a.id}), ev("B", 3, {t: "give", req: a.id, body}), ev("A", 4, {t: "judge", req: a.id, ok: false}),
+             ev("B", 5, {t: "take", req: b.id}), ev("B", 6, {t: "give", req: b.id, body}), ev("C", 7, {t: "judge", req: b.id, ok: false}),
+             ev("E", 5, {t: "take", req: c.id}), ev("E", 6, {t: "give", req: c.id, body}), ev("D", 7, {t: "flag", what: "review", req: c.id})];
+  const S = reduce(e, 8);
+  assert.equal(S.users.B.tickets, 2); assert.equal(S.users.E.tickets, 1);
+});

@@ -39,7 +39,8 @@
       r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
       const tk = U(r.taker), by = U(r.by);
       tk.gave++; by.got++;
-      if (ok) { tk.tickets++; tk.helped++; }
+      // 役に立った → 券1枚。もう一歩 → 半券（0.5枚）。半券2枚で券1枚になる。危ない・ひどい内容として知らされたものは何もなし
+      if (ok) { tk.tickets++; tk.helped++; } else if (!r.flaggedReview) { tk.tickets += 0.5; tk.halves = (tk.halves || 0) + 1; }
       if (!auto) { by.judged++; if (ok) by.judgedOk++; }
       tk.lastReviewed = r.by;
     }
@@ -71,9 +72,9 @@
         (r.flags = r.flags || []).push(e.pubkey); ok = true;
         if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
       }
-      // 危ない・ひどいレビュー：依頼した人がつける。「いまひとつ」と同じく券は入らず、書いた人に印が残る
+      // 危ない・ひどいレビュー：依頼した人がつける。券も半券も入らず、書いた人に印が残る
       else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === e.pubkey) {
-        finish(r, false, e.created_at); r.flaggedReview = true; U(r.taker).flaggedReviews++; ok = true;
+        r.flaggedReview = true; finish(r, false, e.created_at); U(r.taker).flaggedReviews++; ok = true;
       }
       S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
     }

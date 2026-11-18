@@ -240,7 +240,7 @@ function render() {
   if (!S) { m.innerHTML = `<p class="empty">読み込んでいます…</p>`; return; }
   const c = candidates().length;
   m.innerHTML = `${HERO}
-    <div class="wallet" id="wallet"><span class="who">${esc(me.name)} さん${mode === "demo" ? "（見本）" : ""}<br><span class="small" id="helped">${helpedText()}</span></span><span class="tk"><span>券</span><b id="tix">${mine().tickets}</b><span>枚</span></span></div>
+    <div class="wallet" id="wallet"><span class="who">${esc(me.name)} さん${mode === "demo" ? "（見本）" : ""}<br><span class="small" id="helped">${helpedText()}</span></span><span class="tk" id="tk">${tixHtml()}</span></div>
     <div id="note">${noteHtml()}</div>
     <div class="two"><button type="button" class="primary" data-act="ask">見てもらう<small>券を1枚使う</small></button><button type="button" data-act="give">見てあげる<small>${c ? `${c}件が待っています` : "いまは待っている依頼がありません"}</small></button></div>
     <div id="lists">${listsHtml()}</div>`;
@@ -248,18 +248,19 @@ function render() {
 function listsHtml() {
   const t = todo(), a = myAsks();
   return (t.length ? `<h3>あなたの番</h3>${t.map(x => `<button type="button" class="item" data-act="${x.act}" data-id="${x.r.id}"><div><b>${x.label}</b><span>${esc(x.sub)}</span></div><span class="pill go">開く</span></button>`).join("")}` : "")
-    + `<h3>あなたの依頼</h3>` + (a.length ? a.map(r => `<button type="button" class="item" data-act="${r.status === "given" ? "judge" : "mine"}" data-id="${r.id}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</b><span>${esc(r.ask).slice(0, 40)}</span></div><span class="pill ${r.status === "given" ? "go" : ""}">${r.status === "done" ? (r.ok ? "役に立った" : "いまひとつ") : ST[r.status]}</span></button>`).join("") : `<p class="empty">まだありません。「見てもらう」から出せます。</p>`);
+    + `<h3>あなたの依頼</h3>` + (a.length ? a.map(r => `<button type="button" class="item" data-act="${r.status === "given" ? "judge" : "mine"}" data-id="${r.id}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</b><span>${esc(r.ask).slice(0, 40)}</span></div><span class="pill ${r.status === "given" ? "go" : ""}">${r.status === "done" ? (r.ok ? "役に立った" : r.flaggedReview ? "知らせた" : "もう一歩") : ST[r.status]}</span></button>`).join("") : `<p class="empty">まだありません。「見てもらう」から出せます。</p>`);
 }
 const noteHtml = () => note ? `<div class="note ${note.k || ""}" data-flash><span>${esc(note.m)}</span><button type="button" data-act="dismiss" aria-label="閉じる">×</button></div>` : "";
+const tixHtml = () => { const t = mine().tickets, w = Math.floor(t), h = t - w >= 0.5; return `<span>券</span><b id="tix">${w}</b><span>枚</span>${h ? `<span style="margin-left:6px">＋半券</span>` : ""}`; };
 let lastTix = null;
 function live() {
   if (!me || !S) return;
   if (!$("#wallet")) return render();
   const u = mine();
-  $("#tix").textContent = u.tickets;
+  $("#tk").innerHTML = tixHtml();
   $("#lists").innerHTML = listsHtml();
   const c = candidates().length; $(".two button:last-child small").textContent = c ? `${c}件が待っています` : "いまは待っている依頼がありません";
-  if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: "券が1枚増えました。あなたのレビューが役に立ちました。"}; $("#note").innerHTML = noteHtml(); }
+  if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: u.tickets - lastTix >= 1 ? "券が1枚増えました。あなたのレビューが役に立ちました。" : "半券をもらいました。「もう一歩」でも、半券2枚で券1枚になります。"}; $("#note").innerHTML = noteHtml(); }
   lastTix = u.tickets;
   const h = $("#helped"); if (h) h.textContent = helpedText();
   if (u.gave >= 1 && !store.get("sougo.backed", 0) && !store.get("sougo.nudged", 0) && !note) { store.set("sougo.nudged", 1); note = {m: "記録がたまり始めました。「記録とかぎ」からかぎを書き写しておくと、端末を替えても続けられます。"}; $("#note").innerHTML = noteHtml(); }
@@ -322,22 +323,23 @@ function writeHtml(r) {
 const reviewBody = r => `<div class="rv">${Object.entries(r.body || {}).map(([k, v]) => `<div><b>${esc(k)}</b><p>${esc(v) || "—"}</p></div>`).join("")}<span class="small">${esc(nameOf(r.taker))}さん${r.used ? `・使ったAI：${esc(r.used)}` : ""}</span></div>`;
 function judgeHtml(r) {
   return `<h2>届いたレビュー</h2><div class="job"><span class="small">${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</span>${reviewBody(r)}</div>
-    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">いまひとつ</button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">役に立った<small>相手に券が1枚</small></button></div>
+    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">もう一歩<small>相手に半券</small></button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">役に立った<small>相手に券が1枚</small></button></div>
     <p class="small" style="margin:0">${Rules.R.judgeDays}日たっても返事がなければ「役に立った」になります。</p>
     <button type="button" class="link" data-act="flag-review" data-id="${r.id}" style="color:var(--warm)">危ない・ひどい内容として知らせる（券は入らない）</button>`;
 }
 function mineHtml(r) {
-  return `<h2>あなたの依頼</h2><div class="job"><span class="pill" style="justify-self:start">${esc(Rules.gen(r.genre).name)}・${r.status === "done" ? (r.ok ? "役に立った" : "いまひとつ") : ST[r.status]}</span><div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
+  return `<h2>あなたの依頼</h2><div class="job"><span class="pill" style="justify-self:start">${esc(Rules.gen(r.genre).name)}・${r.status === "done" ? (r.ok ? "役に立った" : r.flaggedReview ? "知らせた" : "もう一歩") : ST[r.status]}</span><div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
     ${r.taker ? `<span class="small">${r.status === "taken" ? "見てくれている人" : "見てくれた人"}：${esc(nameOf(r.taker))}さん</span>` : ""}</div>
     ${r.status === "done" ? reviewBody(r) : ""}
     ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">取り下げる（券が戻る）</button>` : ""}`;
 }
 const HOW = [
-  ["1件見てあげると、1件見てもらえる", "見てもらうときに券を1枚使います。だれかのものを見て「役に立った」と言われると、券が1枚もらえます。最初の1枚は配られています。決まりはこれだけです。"],
+  ["1件見てあげると、1件見てもらえる", "見てもらうときに券を1枚使います。だれかのものを見て「役に立った」と言われると、券が1枚もらえます。「もう一歩」でも半券がもらえ、半券2枚で券1枚になります。最初の1枚は配られています。"],
   ["見送りは自由", "「見てあげる」では、こなせそうなものだけ引き受けます。見送っても何も減りません。重すぎる依頼は自然に後回しになるので、依頼する人は見てほしい点を絞るようになります。"],
   ["人もAIも", "人が見ても、AIを使って見ても、券は同じ1枚です。依頼する人は「人の意見がほしい」「このAIに見てほしい」と希望を書けます。見てあげる人は、使ったAIがあれば書き添えます。"],
   ["お返しの褒め合いをしない", "直前にあなたを見てくれた人の依頼は、あなたには回ってきません。"],
   ["期限", `引き受けたら${Rules.R.writeDays}日以内に届けます。届かなければ、依頼はほかの人に戻ります。届いて${Rules.R.judgeDays}日返事がなければ「役に立った」になります。`],
+  ["記録は残り続けます", "だれが、だれの何を見て、どう役に立ったか。その記録は署名つきで残り、毎日まとめてビットコインに刻まれます（OpenTimestamps）。後からだれにも書き換えられない、関わりと貢献の記録になります。"],
   ["公開されます", "依頼の内容もレビューも、だれでも読める場所に置かれます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。"],
   ["運営がいない", "依頼もレビューも、あなたの端末で署名され、だれでも使える中継（Nostrのリレー）に置かれます。券の数は、すべての出来事から、だれの画面でも同じ決まりで数え直されます。だれも勝手に増やしたり消したりできません。"],
   ["危ないものから守る", "見てあげるときは、ウォレットをつながない・署名しない・かぎや個人情報を入れないでください。悪意のあるアプリへ誘導する依頼は、レビューで「役に立った」をもらったことのある人が「危ない」と知らせられ、2人から知らせが付くと、だれの画面からも消えます。ひどいレビューや危ないレビューは、依頼した人が知らせると、券が入りません。"],
