@@ -45,6 +45,25 @@ const W = parseInt(process.argv[2] || "400");
   const before = await p.evaluate(() => __sr.S.users[__sr.me.pk].tickets);
   await p.waitForTimeout(3500); await p.waitForTimeout(5200);
   check("見てあげたレビューが役に立つと券が増える", await p.evaluate(b => __sr.S.users[__sr.me.pk].tickets === b + 1, before));
+  // つなぐ → 集まり → できた → 確かに
+  await p.click("[data-act=give]"); await p.waitForTimeout(350);
+  const un = await p.$("[data-act=unskip]"); if (un) { await un.click(); await p.waitForTimeout(200); }
+  await p.click("[data-act=linkfrom]"); await p.waitForTimeout(350);
+  check("つなぐ画面が開く", (await p.textContent("#pbody h2")) === "つなぐ");
+  await p.click("[data-act=send-link]"); await p.waitForTimeout(150);
+  check("相手を選ばないと提案できない", (await p.textContent("#l-msg")).includes("選んで"));
+  await p.click("[data-act=pick]"); await p.fill("#l-why", "どちらも初心者向けで、つまずく所が同じ"); await p.click("[data-act=send-link]");
+  const t0 = await p.evaluate(() => __sr.S.users[__sr.me.pk].tickets);
+  await p.waitForTimeout(4200); await p.waitForTimeout(5200);
+  check("両方が受けると、つないだ人に券1枚", await p.evaluate(t => __sr.S.users[__sr.me.pk].tickets === t + 1, t0));
+  check("あなたの集まりが出る", (await p.textContent("#lists")).includes("あなたの集まり"));
+  await p.click(".item[data-act=circle]"); await p.waitForTimeout(350);
+  check("貢献の記録が見える", (await p.textContent("#pbody")).includes("つないだ 1"));
+  await p.fill("#m-url", "https://example.com/together"); await p.fill("#m-what", "2つの閃きを合わせた入門ガイド"); await p.click("[data-act=made]");
+  await p.waitForTimeout(3000); await p.waitForTimeout(5200);
+  if (W === 400 && process.env.SHOT) await p.screenshot({path: process.env.SHOT, fullPage: false});
+  check("ほかの仲間が確かめて完結する", await p.evaluate(() => Object.values(__sr.S.circles).some(C => C.status === "complete")));
+  await p.click("[data-act=back]"); await p.waitForTimeout(400);
   // しくみ・記録・払って戻る
   await p.click("[data-act=how]"); await p.waitForTimeout(350);
   check("しくみが開く", (await p.textContent("#pbody h2")) === "しくみ");
@@ -57,7 +76,7 @@ const W = parseInt(process.argv[2] || "400");
   check("記録に自分の出来事が並ぶ", (await p.textContent("#pbody")).includes("依頼") && (await p.textContent("#pbody")).includes("届けた"));
   await p.click("[data-act=back]"); await p.waitForTimeout(450);
   check("横にはみ出さない", !(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));
-  if (W === 400) await p.screenshot({path: "/tmp/claude-0/-home-claude/5e021df8-936d-57ea-b411-4aa434b57390/scratchpad/sougo/s400.png", fullPage: true});
+  if (W === 400 && process.env.SHOT) await p.screenshot({path: process.env.SHOT.replace(".png", "-main.png"), fullPage: true});
   console.log(await p.evaluate(() => JSON.stringify(Object.values(__sr.S.reqs).map(r => [__sr.S.users[r.by].name, r.genre, r.status, r.taker === __sr.me.pk]))));
   console.log(log.join("\n")); console.log("errors", JSON.stringify(errs)); if (errs.length) process.exitCode = 1;
   await b.close();
