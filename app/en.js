@@ -70,6 +70,7 @@ var EN = {
   "コード": "Code",
   "文章": "Writing",
   "見た目": "Look",
+  "遊び心地": "Gameplay",
   "見た環境・範囲": "Where & what you checked",
   "{g}で気になった所": "Issues: {g}",
   "よかった所": "What was good",
