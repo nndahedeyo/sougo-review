@@ -682,6 +682,9 @@ var EN = {
   "券を1枚贈りました": "1 ticket given",
   "贈れませんでした": "Could not give",
   "名前なし": "no name",
+  "あなたの番があります（{n}件）": "It's your turn ({n})",
+  "試験版です": "This is a trial version",
+  "知らせが届くのは、アプリを開いている間だけです。かぎをなくすと、券も非公開の中身も戻せません。中継が止まったり古い記録を消したりすることがあります。決まりは変わることがあり、変えたときは変更記録に残します。": "You get alerts only while the app is open. If you lose your key, your tickets and private content can't be recovered. Relays may go down or drop old records. Rules may change; every change is logged.",
 
   // 出来事の名前
   "名前": "Name",
@@ -987,9 +990,23 @@ function live() {
   $("#tk").innerHTML = tixHtml(); $("#lists").innerHTML = listsHtml(); $("#cnt").textContent = cntText();
   if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: t(u.tickets - lastTix >= 1 ? "券が1枚増えました" : "半券をもらいました（2枚で券1枚）")}; $("#note").innerHTML = noteHtml(); }
   lastTix = u.tickets;
+  alertTurn();
   if (u.gave >= 1 && !store.get("sougo.backed", 0) && !store.get("sougo.nudged", 0) && !note) { store.set("sougo.nudged", 1); note = {m: t("「記録とかぎ」でかぎを書き写しておくと、端末を替えても続けられます")}; $("#note").innerHTML = noteHtml(); }
   if (openId) refreshPanel();
 }
+
+/* ---------- 知らせ：アプリを開いている間だけ（画面の題名に件数、ほかを見ているときはブラウザの通知） ---------- */
+let seenTurn = null;
+function alertTurn() {
+  const items = todo(), ids = items.map(h => (h.match(/data-act="(\w+)" data-id="([^"]+)"/) || []).slice(1).join(":"));
+  document.title = (items.length ? `(${items.length}) ` : "") + t("相互レビュー");
+  const fresh = seenTurn ? ids.filter(x => !seenTurn.has(x)) : [];
+  seenTurn = new Set(ids);
+  if (!fresh.length || !document.hidden) return;
+  try { if (window.Notification && Notification.permission === "granted") new Notification(t("相互レビュー"), {body: t("あなたの番があります（{n}件）", {n: items.length}), tag: "sougo"}); } catch (e) {}
+}
+// 通知の許可は、最初に依頼を出すか引き受けたときに一度だけ聞く（ボタンは増やさない）
+function askNotify() { try { if (window.Notification && Notification.permission === "default" && !store.get("sougo.asked", 0)) { store.set("sougo.asked", 1); Notification.requestPermission(); } } catch (e) {} }
 
 /* ---------- 2枚目の画面 ---------- */
 let openId = null, openKind = null;
@@ -1130,6 +1147,7 @@ const HOW = [
   ["使わないこと", "特許や独占的な権利がほしいもの、ストアの星や推薦文の交換、お金のやり取り（券の売り買いも）。"],
   ["決まりを変えるとき", "変えた日と中身を、だれでも読める変更記録（CHANGES.md）に残します。"],
   ["運営がいない", "出来事は端末で署名され、だれでも使える中継（Nostr）に置かれます。券の数は、だれの画面でも同じ決まりで数え直されます。"],
+  ["試験版です", "知らせが届くのは、アプリを開いている間だけです。かぎをなくすと、券も非公開の中身も戻せません。中継が止まったり古い記録を消したりすることがあります。決まりは変わることがあり、変えたときは変更記録に残します。"],
 ];
 const howHtml = () => `<h2>${t("しくみ")}</h2><div class="how" style="display:grid;gap:16px">${HOW.map(([h, b]) => `<div><h4>${t(h)}</h4><p>${t(b, {w: Rules.R.writeDays, j: Rules.R.judgeDays})}</p></div>`).join("")}</div>`;
 let histN = 50;
@@ -1187,6 +1205,7 @@ async function act(a, id) {
   if (a === "mine" && r) return openPanel("mine", id, mineHtml(r));
   if (a === "unskip") { skipped.clear(); store.set("sougo.skip", []); return openPanel("give", null, giveHtml()); }
   if (a === "skip") { skip(id); return openPanel("give", null, giveHtml()); }
+  if (a === "send-ask" || a === "take") askNotify();
   if (a === "send-ask") {
     const link = $("#a-link").value.trim(), ask = $("#a-ask").value.trim(), hint = $("#a-hint").value.trim();
     if (!/^https:\/\/\S+$/.test(link)) return bad("#a-link", t("リンクは https:// から"));

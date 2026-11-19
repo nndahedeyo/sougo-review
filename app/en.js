@@ -259,6 +259,9 @@ var EN = {
   "券を1枚贈りました": "1 ticket given",
   "贈れませんでした": "Could not give",
   "名前なし": "no name",
+  "あなたの番があります（{n}件）": "It's your turn ({n})",
+  "試験版です": "This is a trial version",
+  "知らせが届くのは、アプリを開いている間だけです。かぎをなくすと、券も非公開の中身も戻せません。中継が止まったり古い記録を消したりすることがあります。決まりは変わることがあり、変えたときは変更記録に残します。": "You get alerts only while the app is open. If you lose your key, your tickets and private content can't be recovered. Relays may go down or drop old records. Rules may change; every change is logged.",
 
   // 出来事の名前
   "名前": "Name",

@@ -32,6 +32,7 @@ const W = parseInt(process.argv[2] || "400");
   check("出すと券が減る", (await myTix()) === 0);
   check("依頼に見てほしい所が2つ入る", await p.evaluate(() => Object.values(__sr.S.reqs).find(r => r.by === __sr.me.pk).genres.join() === "use,look"));
   check("見本の人が引き受けて届けてくれる", await until(() => /レビューが届きました/.test(document.querySelector("#lists").textContent)));
+  check("あなたの番の件数が、画面の題名に出る", (await p.title()).startsWith("(1) 相互レビュー"));
   await p.click('.item[data-act=judge]'); await p.waitForTimeout(300);
   check("届いたレビューに、選んだ所ごとの欄と使ったAIが出る", (await text("#pbody")).includes("見た目で気になった所") && (await text("#pbody")).includes("Claude"));
   await p.click("[data-act=judge-ok]"); await p.waitForTimeout(300);
@@ -112,7 +113,7 @@ const W = parseInt(process.argv[2] || "400");
 
   // ---- しくみ・記録・払って戻る ----
   await p.click("[data-act=how]"); await p.waitForTimeout(300);
-  check("しくみが開く", (await text("#pbody h2")) === "しくみ" && (await text("#pbody")).includes("公開と非公開"));
+  check("しくみが開き、試験版であることが書いてある", (await text("#pbody h2")) === "しくみ" && (await text("#pbody")).includes("公開と非公開") && (await text("#pbody")).includes("試験版です"));
   const box = await p.$("#panel");
   await p.evaluate(() => { const el = document.getElementById("panel"); const t = (type, x) => { const ev = new Event(type, {bubbles: true}); ev.touches = [{clientX: x, clientY: 300}]; el.dispatchEvent(ev); }; t("touchstart", 40); t("touchmove", 140); t("touchmove", 260); el.dispatchEvent(new Event("touchend", {bubbles: true})); });
   await p.waitForTimeout(400);
