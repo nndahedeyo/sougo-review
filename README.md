@@ -54,6 +54,7 @@
 
 ## 試験版としての注意
 
+- 中継につながらないときも見本には切り替わらず、出したものはつながったときに送ります。見本は、はじめの画面の「見本で試す」から入ります
 - 知らせが届くのは、アプリを開いている間だけです（画面の題名に件数が出て、ほかのタブを見ているときはブラウザの通知が出ます）。閉じているあいだの依頼や返事には、開いたときに気づきます
 - かぎは端末の中にだけあります。なくすと、券も非公開の中身も戻せません
 - 出来事を置く中継（Nostr）は無料で使えるぶん、止まったり古い記録を消したりすることがあります
@@ -64,7 +65,7 @@
 
 - 画面：`app/app.html`、署名：`app/sig.js`、暗号：`app/seal.js`、決まり：`app/rules.js`、英語の言葉：`app/en.js`（端末の言語が日本語以外なら英語で出ます。`#en` / `#ja` で切り替えて確かめられます）
 - `python3 tools/build.py` で公開用の `index.html` を作ります
-- テスト：`node tests/sig.test.js`、`node --test tests/rules.test.js tests/seal.test.js`、`node tests/app.e2e.js 400`、`node tests/app.en.e2e.js 400`
+- テスト：`node tests/sig.test.js`、`node --test tests/rules.test.js tests/seal.test.js`、`node tests/app.e2e.js 400`、`node tests/app.en.e2e.js 400`、`node tests/app.live.e2e.js`（中継のまねで本番の動き）
 
 ---
 

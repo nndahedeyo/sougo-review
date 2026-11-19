@@ -113,7 +113,7 @@ const store = {
 
 /* ---------- かぎ（端末の中だけ） ---------- */
 let me = store.get("sougo.me", null);          // {sk, pk, name}
-let mode = "connecting";                         // connecting / live / demo
+let mode = "live";                               // live / demo（見本は #demo のときだけ）
 let events = [], S = null, note = null, skipped = new Set(store.get("sougo.skip", []));
 
 /* ---------- 出来事の置き場所 ---------- */
@@ -133,25 +133,23 @@ async function accept(ev) {
 }
 let t0;
 function schedule() { clearTimeout(t0); t0 = setTimeout(() => { recompute(); live(); }, 150); }
-function connect() {
-  if (!("WebSocket" in window)) return toDemo();
-  for (const url of RELAYS) {
-    try {
-      const ws = new WebSocket(url);
-      ws.onopen = () => { if (mode !== "live") toLive(); ws.send(JSON.stringify(["REQ", "sr", {kinds: [KIND], "#t": [TAG], limit: 500}])); flush(); };
-      // 古い出来事もすべて読む（500件ずつさかのぼる）。全部読まないと、券の数が人によってずれる
-      let oldest = Infinity, got = 0, page = 0;
-      ws.onmessage = m => { try { const d = JSON.parse(m.data);
-        if (d[0] === "EVENT") { got++; if (d[2] && d[2].created_at < oldest) oldest = d[2].created_at; accept(d[2]); }
-        if (d[0] === "EOSE" && got >= 500 && page < 40) { page++; got = 0; ws.send(JSON.stringify(["REQ", "sr" + page, {kinds: [KIND], "#t": [TAG], until: oldest - 1, limit: 500}])); }
-      } catch (e) {} };
-      ws.onclose = () => { setTimeout(netStatus, 50); };
-      ws.onerror = () => {};
-      sockets.push(ws);
-    } catch (e) {}
-  }
-  setTimeout(() => { if (mode === "connecting") toDemo(); }, 6000);
+// 中継につなぐ。つながらなくても本番のまま動き、出したものは、つながったときに送る（見本には自動で切り替えない）
+let quietUntil = Date.now() + 8000;   // 開いた直後は、古い出来事を読み込む途中で券の数が動くので「増えました」を出さない
+function connectOne(url, wait) {
+  let ws; try { ws = new WebSocket(url); } catch (e) { return; }
+  ws.onopen = () => { wait = 2000; ws.send(JSON.stringify(["REQ", "sr", {kinds: [KIND], "#t": [TAG], limit: 500}])); flush(); netStatus(); };
+  // 古い出来事もすべて読む（500件ずつさかのぼる）。全部読まないと、券の数が人によってずれる
+  let oldest = Infinity, got = 0, page = 0;
+  ws.onmessage = m => { try { const d = JSON.parse(m.data);
+    if (d[0] === "EVENT") { got++; if (d[2] && d[2].created_at < oldest) oldest = d[2].created_at; accept(d[2]); }
+    if (d[0] === "EOSE") { quietUntil = Math.max(quietUntil, Date.now() + 3000); if (got >= 500 && page < 40) { page++; got = 0; ws.send(JSON.stringify(["REQ", "sr" + page, {kinds: [KIND], "#t": [TAG], until: oldest - 1, limit: 500}])); } }
+  } catch (e) {} };
+  // 切れたら（電波が弱い、画面を閉じていた）間をあけてつなぎ直す
+  ws.onclose = () => { const i = sockets.indexOf(ws); if (i >= 0) sockets.splice(i, 1); setTimeout(netStatus, 50); setTimeout(() => connectOne(url, Math.min((wait || 2000) * 2, 60000)), wait || 2000); };
+  ws.onerror = () => {};
+  sockets.push(ws);
 }
+function connect() { if ("WebSocket" in window) for (const url of RELAYS) connectOne(url, 2000); }
 const openSockets = () => sockets.filter(s => s.readyState === 1);
 let outbox = store.get("sougo.outbox", []);
 function flush() {
@@ -164,8 +162,9 @@ function toDemo() { mode = "demo"; loadEvents(); seedDemo().then(() => { recompu
 function netStatus() {
   const n = $("#net"), on = mode === "live" && openSockets().length > 0;
   n.className = "status" + (on ? " on" : "");
-  n.title = t(on ? "つながっています" : mode === "demo" ? "見本で動いています" : "つないでいます");
-  n.lastChild.textContent = mode === "demo" ? t("見本") : "";
+  n.title = t(on ? "つながっています" : mode === "demo" ? "見本をやめる" : "つないでいます");
+  n.lastChild.textContent = mode === "demo" ? t("見本") + " ×" : on ? "" : t("つないでいます");
+  if (mode === "demo") { n.dataset.act = "undemo"; n.setAttribute("role", "button"); n.style.cursor = "pointer"; }
 }
 
 /* ---------- 出す ---------- */
@@ -355,7 +354,8 @@ function render() {
     m.innerHTML = `<p class="lead">${t("1件見てあげると、<br>1件見てもらえる。")}</p>
       <div style="margin-top:22px;display:grid;gap:12px"><input id="nm" maxlength="24" placeholder="${t("呼び名")}" aria-label="${t("呼び名")}" autocomplete="off">
       <button type="button" class="primary wide" data-act="start">${t("はじめる")}</button>
-      <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p></div>`;
+      <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
+      ${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo" style="justify-self:start">${t("見本で試す")}</button>`}</div>`;
     return;
   }
   if (!S) { m.innerHTML = `<p class="empty">${t("読み込んでいます…")}</p>`; return; }
@@ -381,7 +381,7 @@ function live() {
   if (!$("#wallet")) return render();
   const u = mine();
   $("#tk").innerHTML = tixHtml(); $("#lists").innerHTML = listsHtml(); $("#cnt").textContent = cntText();
-  if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: t(u.tickets - lastTix >= 1 ? "券が1枚増えました" : "半券をもらいました（2枚で券1枚）")}; $("#note").innerHTML = noteHtml(); }
+  if (lastTix !== null && u.tickets > lastTix && Date.now() > quietUntil) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: t(u.tickets - lastTix >= 1 ? "券が1枚増えました" : "半券をもらいました（2枚で券1枚）")}; $("#note").innerHTML = noteHtml(); }
   lastTix = u.tickets;
   alertTurn();
   if (u.gave >= 1 && !store.get("sougo.backed", 0) && !store.get("sougo.nudged", 0) && !note) { store.set("sougo.nudged", 1); note = {m: t("「記録とかぎ」でかぎを書き写しておくと、端末を替えても続けられます")}; $("#note").innerHTML = noteHtml(); }
@@ -579,9 +579,10 @@ async function act(a, id) {
   if (a === "start") {
     const name = ($("#nm").value || "").trim(); if (!name) return $("#nm").focus();
     const sk = Sig.newKey(); me = {sk, pk: Sig.hex(Sig.pubkey(Sig.unhex(sk))), name}; store.set("sougo.me", me);
-    if (mode !== "connecting") { await emit({t: "hello", name}); render(); } else { render(); pendingHello = name; }
+    await emit({t: "hello", name}); render();
     return;
   }
+  if (a === "demo" || a === "undemo") { location.hash = a === "demo" ? "#demo" : ""; return location.reload(); }
   if (a === "dismiss") { note = null; $("#note").innerHTML = ""; return; }
   if (a === "back") return closePanel();
   if (a === "how") return openPanel("how", null, howHtml());
@@ -673,9 +674,9 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && openKind) closePanel();
   if (e.key === "Enter" && e.target.matches && e.target.matches("[role=button][data-act]")) act(e.target.dataset.act, e.target.dataset.id);
 });
-setInterval(() => { if (S) { recompute(); live(); sync(); } if (mode === "live") flush(); netStatus(); if (pendingHello && mode !== "connecting" && me) { const n = pendingHello; pendingHello = null; emit({t: "hello", name: n}).then(render); } }, 5000);
+setInterval(() => { if (S) { recompute(); live(); sync(); } if (mode === "live") flush(); netStatus(); }, 5000);
 window.__sr = {act, get S() { return S; }, get me() { return me; }, get mode() { return mode; }, toDemo, plain, rplain, cleanAsk, cleanReview};
 
 render();
-if (/demo/.test(location.hash)) toDemo(); else connect();
+if (/demo/.test(location.hash)) toDemo(); else { toLive(); connect(); }
 </script>
