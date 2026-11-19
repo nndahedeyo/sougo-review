@@ -92,9 +92,10 @@ const {contributions} = require("../app/rules.js");
 function helpedUser(e, who, at) {   // who に「役に立った」の実績をつける
   const x = ask("H" + at, at); e.push(x, ev(who, at + 1, {t: "take", req: x.id}), ev(who, at + 2, {t: "give", req: x.id, body}), ev("H" + at, at + 3, {t: "judge", req: x.id, ok: true}));
 }
+const gave = (e, who, r, at) => e.push(ev(who, at, {t: "take", req: r.id}), ev(who, at + 1, {t: "give", req: r.id, body}));  // who が r を見て届けた
 test("つなぐ：両方の持ち主が受けると成立し、つないだ人に券1枚・集まりができる", () => {
   const e = []; helpedUser(e, "L", 1);
-  const a = ask("A", 10), b = ask("B", 10); e.push(a, b);
+  const a = ask("A", 10), b = ask("B", 10); e.push(a, b); gave(e, "L", a, 12);
   const l = ev("L", 20, {t: "link", a: a.id, b: b.id, why: "同じ悩み"}); e.push(l, ev("A", 21, {t: "answer", link: l.id, ok: true}));
   let S = reduce(e, 22); assert.equal(S.links[l.id].status, "pending"); assert.equal(S.users.L.tickets, 2);
   e.push(ev("B", 23, {t: "answer", link: l.id, ok: true}));
@@ -104,7 +105,7 @@ test("つなぐ：両方の持ち主が受けると成立し、つないだ人�
 });
 test("つなぐ：実績のない人・持ち主本人は提案できない、断られたら何も起きない、同じ2人は1回だけ", () => {
   const e = []; helpedUser(e, "L", 1); helpedUser(e, "M", 5);
-  const a = ask("A", 10), b = ask("B", 10), a2 = ask("A", 11); e.push(a, b);
+  const a = ask("A", 10), b = ask("B", 10), a2 = ask("A", 11); e.push(a, b); gave(e, "L", a, 12);
   e.push(ev("N", 20, {t: "link", a: a.id, b: b.id}), ev("A", 20, {t: "link", a: a.id, b: b.id}));
   let S = reduce(e, 21); assert.equal(Object.keys(S.links).length, 0);
   const l = ev("L", 22, {t: "link", a: a.id, b: b.id}); e.push(l, ev("A", 23, {t: "answer", link: l.id, ok: false}));
@@ -115,7 +116,7 @@ test("つなぐ：実績のない人・持ち主本人は提案できない、�
 });
 test("集まりが広がり、できた→確かにで完結し、貢献の記録が残る", () => {
   const e = []; helpedUser(e, "L", 1);
-  const a = ask("A", 10), b = ask("B", 10), c = ask("C", 10); e.push(a, b, c);
+  const a = ask("A", 10), b = ask("B", 10), c = ask("C", 10); e.push(a, b, c); gave(e, "L", a, 12); gave(e, "L", b, 14);
   const l1 = ev("L", 20, {t: "link", a: a.id, b: b.id}); e.push(l1, ev("A", 21, {t: "answer", link: l1.id, ok: true}), ev("B", 21, {t: "answer", link: l1.id, ok: true}));
   const l2 = ev("L", 22, {t: "link", a: b.id, b: c.id}); e.push(l2, ev("B", 23, {t: "answer", link: l2.id, ok: true}), ev("C", 23, {t: "answer", link: l2.id, ok: true}));
   let S = reduce(e, 24); const C = Object.values(S.circles); assert.equal(C.length, 1); assert.equal(C[0].reqs.length, 3);
@@ -126,6 +127,16 @@ test("集まりが広がり、できた→確かにで完結し、貢献の記�
   const rec = contributions(S, C[0].id); assert.equal(rec.find(x => x.pk === "L").linked, 2); assert.equal(rec.find(x => x.pk === "C").made, 1);
 });
 test("つなぎの提案は14日で消える", () => {
-  const e = []; helpedUser(e, "L", 1); const a = ask("A", 10), b = ask("B", 10); const l = ev("L", 20, {t: "link", a: a.id, b: b.id}); e.push(a, b, l);
+  const e = []; helpedUser(e, "L", 1); const a = ask("A", 10), b = ask("B", 10); e.push(a, b); gave(e, "L", a, 12); const l = ev("L", 20, {t: "link", a: a.id, b: b.id}); e.push(l);
   assert.equal(reduce(e, 20 + 15 * DAY).links[l.id].status, "expired");
+});
+test("つなぐ：2つのどちらも見たことがなければ提案できない。片方を見ていればよい", () => {
+  const e = []; helpedUser(e, "L", 1); const a = ask("A", 10), b = ask("B", 10), c = ask("C", 10); e.push(a, b, c);
+  const l1 = ev("L", 20, {t: "link", a: a.id, b: b.id}); e.push(l1);
+  e.push(ev("L", 21, {t: "take", req: c.id}));
+  const l2 = ev("L", 22, {t: "link", a: c.id, b: b.id}); e.push(l2);   // 引き受けただけでは「見た」にならない
+  e.push(ev("L", 23, {t: "give", req: c.id, body}));
+  const l3 = ev("L", 24, {t: "link", a: b.id, b: c.id}); e.push(l3);   // 届けた依頼となら、もう片方は見ていなくてよい
+  const S = reduce(e, 25);
+  assert.equal(S.links[l1.id], undefined); assert.equal(S.links[l2.id], undefined); assert.equal(S.links[l3.id].status, "pending");
 });

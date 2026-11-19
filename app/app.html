@@ -230,6 +230,13 @@ function habit(pk) {
   const u = S.users[pk] || {}; if (!u.judged) return "";
   return `<span class="small">この人は届いたレビューの ${Math.round(100 * u.judgedOk / u.judged)}% に「役に立った」を返しています（${u.judged}件）</span>`;
 }
+// 保留：気になる依頼に印をつけておく。この端末の中だけに置き、だれにも公開しない
+const wkey = () => "sougo.watch." + (me ? me.pk : "");
+const watched = () => new Set(store.get(wkey(), []));
+function setWatch(id, on) { const w = watched(); on ? w.add(id) : w.delete(id); store.set(wkey(), [...w]); }
+const isLive = r => r && !["cancelled", "hidden"].includes(r.status);
+function watchList() { const w = watched(); return [...w].map(id => S.reqs[id]).filter(isLive).sort((a, b) => b.at - a.at); }
+const RST = r => r.status === "done" ? "完了" : ST[r.status] || "";
 function candidates() {
   return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.pk && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.pk).sort((a, b) => a.at - b.at);
 }
@@ -256,6 +263,7 @@ function listsHtml() {
   const t = todo(), a = myAsks();
   return (t.length ? `<h3>あなたの番</h3>${t.map(x => `<button type="button" class="item" data-act="${x.act}" data-id="${x.r.id}"><div><b>${x.label}</b><span>${esc(x.sub)}</span></div><span class="pill go">開く</span></button>`).join("")}` : "")
     + (myCircles().length ? `<h3>あなたの集まり</h3>${myCircles().map(C => `<button type="button" class="item" data-act="circle" data-id="${C.id}"><div><b>${C.members.length}人・${C.reqs.length}件の依頼</b><span>${esc(C.members.map(nameOf).join("、")).slice(0, 48)}</span></div><span class="pill ${C.status === "complete" ? "go" : ""}">${CST[C.status]}</span></button>`).join("")}` : "")
+    + (watchList().length ? `<h3>保留中</h3>${watchList().map(r => `<button type="button" class="item" data-act="view" data-id="${r.id}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(nameOf(r.by))}さん</b><span>${esc(r.ask).slice(0, 40)}</span></div><span class="pill">${RST(r)}</span></button>`).join("")}` : "")
     + `<h3>あなたの依頼</h3>` + (a.length ? a.map(r => `<button type="button" class="item" data-act="${r.status === "given" ? "judge" : "mine"}" data-id="${r.id}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(shortLink(r.link))}</b><span>${esc(r.ask).slice(0, 40)}</span></div><span class="pill ${r.status === "given" ? "go" : ""}">${r.status === "done" ? (r.ok ? "役に立った" : r.flaggedReview ? "知らせた" : "いまひとつ") : ST[r.status]}</span></button>`).join("") : `<p class="empty">まだありません。「見てもらう」から出せます。</p>`);
 }
 const noteHtml = () => note ? `<div class="note ${note.k || ""}" data-flash><span>${esc(note.m)}</span><button type="button" data-act="dismiss" aria-label="閉じる">×</button></div>` : "";
@@ -284,6 +292,7 @@ function refreshPanel() {
   // 開いている画面の中身が古くなったときだけ描き直す（入力中の欄には触らない）
   if (openKind === "mine" || openKind === "judge") { const r = S.reqs[openId]; if (r) $("#pbody").innerHTML = openKind === "judge" && r.status === "given" ? judgeHtml(r) : mineHtml(r); }
   if (openKind === "give" && !$("#pbody textarea")) $("#pbody").innerHTML = giveHtml();
+  if (openKind === "view" && S.reqs[openId]) $("#pbody").innerHTML = viewHtml(S.reqs[openId]);
   if (openKind === "circle" && S.circles[openId] && !$("#m-url:focus,#m-what:focus")) $("#pbody").innerHTML = circleHtml(S.circles[openId]);
 }
 const chips = (name, opts, cur) => `<div class="chips" role="group">${opts.map(([v, l]) => `<button type="button" data-chip="${name}" data-v="${v}" aria-pressed="${String(cur) === String(v)}">${esc(l)}</button>`).join("")}</div>`;
@@ -297,7 +306,7 @@ function askHtml() {
       <input id="a-ai" placeholder="AIの名前や版（あれば）例：Claude Opus 5.5" autocomplete="off" style="margin-top:8px;${pick.want === "ai" ? "" : "display:none"}"></div>
     <button type="button" class="primary wide" data-act="send-ask" ${mine().tickets < 1 ? "disabled" : ""}>出す（券を1枚使う）</button>
     ${mine().tickets < 1 ? `<p class="small" style="margin:0">券がありません。だれかのレビューをすると、券が増えます。</p>` : ""}
-    <p class="small" style="margin:0">依頼もレビューも、だれでも読める場所に公開されます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。</p>
+    <p class="small" style="margin:0">依頼もレビューも、だれでも読める場所に公開されます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。非公開はまだありません。入れるときも、非公開の依頼は中身を見て選べないぶん、引き受けてもらいにくくなります。</p>
     <p class="small" style="margin:0">ここで受けるのは改善のための意見です。ストアの星や宣伝用の推薦文には使えません。</p>
     <p class="small" style="margin:0">特許や独占的な権利がほしいものは、ここには出さないでください。公開すると特許が取れなくなることがあります。</p>`;
 }
@@ -316,7 +325,8 @@ function giveHtml() {
       ${linkWarn(r.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}</div>
     <p class="small" style="margin:0">見るときは、ウォレットをつながない・署名しない・かぎや個人情報を入れない。おかしいと思ったら、引き受けずに閉じてください。</p>
     <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">ほかを見る<small>見送っても何も減らない</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">引き受ける<small>${Rules.R.writeDays}日以内に書く</small></button></div>
-    ${(mine().helped || 0) >= 1 ? `<button type="button" class="link" data-act="linkfrom" data-id="${r.id}" style="color:var(--acc)">この依頼を、合いそうなほかの依頼とつなぐ</button>` : ""}
+    <button type="button" class="link" data-act="watch-next" data-id="${r.id}">保留する（印をつけて、あとで探せるようにする）</button>
+    ${canLink(r) ? `<button type="button" class="link" data-act="linkfrom" data-id="${r.id}" style="color:var(--acc)">この依頼を、合いそうなほかの依頼とつなぐ</button>` : ""}
     <p class="small" style="margin:0;text-align:center">残り ${list.length - 1}件 ・ ${(mine().helped || 0) >= 1 ? `<button type="button" class="link" data-act="flag-ask" data-id="${r.id}" style="color:var(--warm)">危ない依頼として知らせる</button>` : "危ない依頼は、レビューで「役に立った」をもらうと知らせられるようになります"}</p>`;
 }
 function writeHtml(r) {
@@ -330,7 +340,7 @@ function writeHtml(r) {
     <p class="small" id="w-msg" style="margin:0;color:var(--warm)" role="alert"></p>
     <button type="button" class="primary wide" data-act="send-give" data-id="${r.id}">届ける</button>
     <button type="button" class="link" data-act="release" data-id="${r.id}">やっぱり手放す（ほかの人に回す）</button>
-    ${(mine().helped || 0) >= 1 ? `<button type="button" class="link" data-act="linkfrom" data-id="${r.id}" style="color:var(--acc)">この依頼を、合いそうなほかの依頼とつなぐ</button>` : ""}`;
+    ${canLink(r) ? `<button type="button" class="link" data-act="linkfrom" data-id="${r.id}" style="color:var(--acc)">この依頼を、合いそうなほかの依頼とつなぐ</button>` : ""}`;
 }
 const reviewBody = r => `<div class="rv">${Object.entries(r.body || {}).map(([k, v]) => `<div><b>${esc(k)}</b><p>${esc(v) || "—"}</p></div>`).join("")}<span class="small">${esc(nameOf(r.taker))}さん${r.used ? `・使ったAI：${esc(r.used)}` : ""}</span></div>`;
 function judgeHtml(r) {
@@ -345,18 +355,36 @@ function mineHtml(r) {
     ${r.status === "done" ? reviewBody(r) : ""}
     ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">取り下げる（券が戻る）</button>` : ""}`;
 }
+// 保留中や履歴から開く、1件の依頼
+function viewHtml(r) {
+  const g = Rules.gen(r.genre), on = watched().has(r.id), canTake = candidates().some(x => x.id === r.id) || (skipped.has(r.id) && r.status === "open" && r.by !== me.pk && (S.users[r.by] || {}).lastReviewed !== me.pk);
+  return `<h2>依頼</h2>
+    <div class="job"><div style="display:flex;justify-content:space-between"><span class="pill">${esc(g.name)}・${RST(r)}</span><span class="small">${esc(nameOf(r.by))}さん</span></div>
+      <div class="ask">${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a>
+      <span class="small">行き先：${esc(host(r.link))}・${new Date(r.at * 1000).toLocaleDateString("ja-JP")}</span>
+      ${wantText(r) ? `<span class="small">${esc(wantText(r))}</span>` : ""}${habit(r.by)}
+      ${linkWarn(r.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}</div>
+    ${canTake ? `<button type="button" class="primary wide" data-act="take" data-id="${r.id}">引き受ける<small>${Rules.R.writeDays}日以内に書く</small></button>` : ""}
+    ${canLink(r) ? `<button type="button" class="link" data-act="linkfrom" data-id="${r.id}" style="color:var(--acc)">この依頼を、合いそうなほかの依頼とつなぐ</button>` : ""}
+    ${r.by !== me.pk ? `<button type="button" class="link" data-act="${on ? "unwatch" : "watch"}" data-id="${r.id}">${on ? "保留を外す" : "保留する"}</button>` : ""}
+    <p class="small" style="margin:0">保留の印は、この端末の中だけにあります。相手にも、ほかの人にも見えません。</p>`;
+}
 let linkPick = null;
+// つなぐボタンを出すか：実績があり、この依頼と組める相手が1つでもあるとき
+const canLink = r => (mine().helped || 0) >= 1 && r.by !== me.pk && linkables(r).length > 0;
 function linkables(A) {
+  const w = watched();
   const inSame = id => Object.values(S.circles).some(C => C.reqs.includes(A.id) && C.reqs.includes(id));
-  return Object.values(S.reqs).filter(r => r.id !== A.id && !["cancelled", "hidden"].includes(r.status) && r.by !== A.by && r.by !== me.pk && A.by !== me.pk && !inSame(r.id)).sort((a, b) => b.at - a.at).slice(0, 15);
+  const knowA = Rules.seen(A, me.pk);   // 2つのうち少なくとも1つは、自分がレビューを届けた依頼
+  return Object.values(S.reqs).filter(r => r.id !== A.id && !["cancelled", "hidden"].includes(r.status) && r.by !== A.by && r.by !== me.pk && A.by !== me.pk && !inSame(r.id) && (knowA || Rules.seen(r, me.pk))).sort((a, b) => (w.has(b.id) - w.has(a.id)) || b.at - a.at).filter((r, i) => i < 15 || w.has(r.id));
 }
 const reqMini = r => `<div class="job" style="gap:4px"><span class="pill" style="justify-self:start">${esc(Rules.gen(r.genre).name)}・${esc(nameOf(r.by))}さん</span><div>${esc(r.ask)}</div><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(r.link))}</a></div>`;
 function linkHtml(A) {
   const L = linkables(A);
-  return `<h2>つなぐ</h2><p class="small" style="margin:0">合いそうな2つの依頼をつなぎます。両方の持ち主が受けると、小さな集まりができ、あなたに券が1枚入ります。</p>
+  return `<h2>つなぐ</h2><p class="small" style="margin:0">合いそうな2つの依頼をつなぎます。両方の持ち主が受けると、小さな集まりができ、あなたに券が1枚入ります。2つのうち少なくとも1つは、あなたがレビューを届けた依頼です。</p>
     ${reqMini(A)}
     <div class="small">どの依頼と？</div>
-    ${L.length ? `<div style="display:grid;gap:8px">${L.map(r => `<button type="button" class="item" data-act="pick" data-id="${r.id}" aria-pressed="${linkPick === r.id}" style="${linkPick === r.id ? "outline:2px solid var(--acc)" : ""}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(nameOf(r.by))}さん</b><span>${esc(r.ask).slice(0, 50)}</span></div></button>`).join("")}</div>` : `<p class="empty">いまつなげる依頼はありません。</p>`}
+    ${L.length ? `<div style="display:grid;gap:8px">${L.map(r => `<button type="button" class="item" data-act="pick" data-id="${r.id}" aria-pressed="${linkPick === r.id}" style="${linkPick === r.id ? "outline:2px solid var(--acc)" : ""}"><div><b>${esc(Rules.gen(r.genre).name)}・${esc(nameOf(r.by))}さん</b><span>${esc(r.ask).slice(0, 50)}</span></div>${watched().has(r.id) ? `<span class="pill">保留中</span>` : ""}</button>`).join("")}</div>` : `<p class="empty">いまつなげる依頼はありません。</p>`}
     <label>合いそうだと思った理由（ひとこと）<textarea id="l-why" maxlength="300"></textarea></label>
     <p class="small" id="l-msg" style="margin:0;color:var(--warm)" role="alert"></p>
     <button type="button" class="primary wide" data-act="send-link" data-id="${A.id}">提案する</button>`;
@@ -381,31 +409,35 @@ function circleHtml(C) {
 }
 const HOW = [
   ["1件見てあげると、1件見てもらえる", "見てもらうときに券を1枚使います。だれかのものを見て「役に立った」と言われると、券が1枚もらえます。「いまひとつ」でも半券がもらえ、半券2枚で券1枚になります。最初の1枚は配られています。"],
-  ["つなぐ", "合いそうな2つの依頼を見つけたら、つなぐ提案ができます（レビューで「役に立った」をもらったことのある人）。両方の持ち主が受けると小さな集まりができ、つないだ人に券が1枚入ります。同じ2人をつなげるのは1回だけです。"],
+  ["つなぐ", "合いそうな2つの依頼を見つけたら、つなぐ提案ができます（レビューで「役に立った」をもらったことのある人）。2つのうち少なくとも1つは、自分がレビューを届けた依頼にします。中身をよく知っている人がつなぐので、的外れな提案が減ります。両方の持ち主が受けると小さな集まりができ、つないだ人に券が1枚入ります。同じ2人をつなげるのは1回だけです。"],
   ["集まりと、できた", "集まりの中でも、見てもらう・見てあげるは同じ券でやり取りします。さらにつなげば、集まりは広がります。何かが形になったら仲間が「できた」を出し、ほかの仲間が「確かに」と押すと完結します。だれが依頼し、見て、つなぎ、形にしたかが、貢献の記録として残ります。"],
+  ["保留", "気になる依頼は「保留する」で印をつけておけます。トップの「保留中」からいつでも開けて、あとでつなぎたいときにも、つなぐ相手の一覧の上に出ます。印はこの端末の中だけにあり、だれにも見えません。"],
   ["見送りは自由", "「見てあげる」では、こなせそうなものだけ引き受けます。見送っても何も減りません。重すぎる依頼は自然に後回しになるので、依頼する人は見てほしい点を絞るようになります。"],
   ["人もAIも", "人が見ても、AIを使って見ても、券は同じ1枚です。依頼する人は「人の意見がほしい」「このAIに見てほしい」と希望を書けます。見てあげる人は、使ったAIがあれば書き添えます。"],
   ["お返しの褒め合いをしない", "直前にあなたを見てくれた人の依頼は、あなたには回ってきません。"],
   ["期限", `引き受けたら${Rules.R.writeDays}日以内に届けます。届かなければ、依頼はほかの人に戻ります。届いて${Rules.R.judgeDays}日返事がなければ「役に立った」になります。`],
   ["記録は残り続けます", "だれが、だれの何を見て、どう役に立ったか。その記録は署名つきで残り、毎日まとめてビットコインに刻まれます（OpenTimestamps）。後からだれにも書き換えられない、関わりと貢献の記録になります。"],
-  ["公開されます", "依頼の内容もレビューも、だれでも読める場所に置かれます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。"],
+  ["公開されます", "依頼の内容もレビューも、だれでも読める場所に置かれます。公開してよくないもの（未発表の秘密、個人情報）は書かないでください。非公開はまだありません。入れるときも、非公開の依頼は中身を見て選べないぶん、引き受けてもらいにくくなります。"],
   ["運営がいない", "依頼もレビューも、あなたの端末で署名され、だれでも使える中継（Nostrのリレー）に置かれます。券の数は、すべての出来事から、だれの画面でも同じ決まりで数え直されます。だれも勝手に増やしたり消したりできません。"],
   ["危ないものから守る", "見てあげるときは、ウォレットをつながない・署名しない・かぎや個人情報を入れないでください。悪意のあるアプリへ誘導する依頼は、レビューで「役に立った」をもらったことのある人が「危ない」と知らせられ、2人から知らせが付くと、だれの画面からも消えます。ひどいレビューや危ないレビューは、依頼した人が知らせると、券が入りません。"],
   ["特許や権利がほしい人へ", "ここは、作ったものを見せ合い、広げ、組み合わせるための場所です。特許や独占的な権利がほしいものは出さないでください。公開すると特許が取れなくなることがあります。記録が証明するのは「その時点で存在したこと」だけで、権利を与えるものではありません。"],
   ["使わないこと", "ストアの星や宣伝用の推薦文の交換、個人情報が要るもの、お金のやり取りには使いません。"],
 ];
 const howHtml = () => `<h2>しくみ</h2><div class="how" style="display:grid;gap:18px">${HOW.map(([t, b]) => `<div><h4>${t}</h4><p>${b}</p></div>`).join("")}</div>`;
+let histN = 50;
 function meHtml() {
-  const mineLog = S.log.filter(l => l.pk === me.pk).slice(-30).reverse();
+  const all = S.log.filter(l => l.pk === me.pk).reverse(), mineLog = all.slice(0, histN);
   const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した", flag: "危ないと知らせた", link: "つないだ", answer: "つなぎに返事", made: "できた", confirm: "確かに"};
   const u = mine();
   return `<h2>記録とかぎ</h2>
     <div class="job"><b>あなたの記録</b><span>${helpedText()}</span><span class="small">見てもらった ${u.got || 0}件${u.judged ? `・届いたレビューに「役に立った」を返した割合 ${Math.round(100 * u.judgedOk / u.judged)}%` : ""}</span>
       <span class="small">この記録は、このかぎに結びついています。かぎを書き写しておけば、端末を替えても、ほかの場所でも続けられます。</span></div>
-    <div class="job"><b>この端末のかぎ</b><p class="small" style="margin:0">あなたのカードは、この端末の中のかぎだけで動いています。ほかの端末で続けるときや、端末を替えるときは、下のかぎを書き写して保管してください。人に見せると、なりすまされます。</p>
+    <div class="job"><b>この端末のかぎ</b><p class="small" style="margin:0">あなたの記録は、この端末の中のかぎだけで動いています。ほかの端末で続けるときや、端末を替えるときは、下のかぎを書き写して保管してください。人に見せると、なりすまされます。</p>
       <details ontoggle="if(this.open){try{localStorage.setItem('sougo.backed','1')}catch(e){}}"><summary class="small" style="cursor:pointer">かぎを表示する</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
       <label>別の端末のかぎで続ける<input id="imp" placeholder="64文字のかぎ" autocomplete="off"></label><button type="button" data-act="import">このかぎに切り替える</button></div>
-    <div><h3 style="margin-top:0">あなたの出来事</h3>${mineLog.length ? mineLog.map(l => `<div class="small" style="display:flex;justify-content:space-between;padding:6px 2px;border-top:1px solid var(--line)"><span>${T[l.t] || l.t}${l.ok ? "" : "（決まりに合わず無効）"}</span><span>${new Date(l.at * 1000).toLocaleString("ja-JP")}</span></div>`).join("") : `<p class="empty">まだありません。</p>`}</div>
+    <div><h3 style="margin-top:0">あなたの出来事（${all.length}件）</h3>${mineLog.length ? mineLog.map(l => { const q = l.req && S.reqs[l.req], what = q ? `${Rules.gen(q.genre).name}・${q.ask.slice(0, 18)}` : "";
+        return `<div class="small" ${q ? `data-act="${q.by === me.pk ? "mine" : "view"}" data-id="${q.id}" role="button" tabindex="0"` : ""} style="display:flex;justify-content:space-between;gap:10px;padding:6px 2px;border-top:1px solid var(--line);${q ? "cursor:pointer" : ""}"><span>${T[l.t] || l.t}${l.ok ? "" : "（決まりに合わず無効）"}${what ? `<br><span style="color:var(--mute)">${esc(what)}</span>` : ""}</span><span style="white-space:nowrap">${new Date(l.at * 1000).toLocaleString("ja-JP")}</span></div>`; }).join("") : `<p class="empty">まだありません。</p>`}
+      ${all.length > histN ? `<button type="button" class="link" data-act="more" style="margin-top:8px">もっと前を見る（残り ${all.length - histN}件）</button>` : ""}</div>
     <p class="small mono" style="margin:0">あなたの番号：${me.pk}</p>`;
 }
 
@@ -432,7 +464,11 @@ async function act(a, id) {
   if (a === "dismiss") { note = null; $("#note").innerHTML = ""; return; }
   if (a === "back") return closePanel();
   if (a === "how") return openPanel("how", null, howHtml());
-  if (a === "me") return me && S && openPanel("me", null, meHtml());
+  if (a === "me") { histN = 50; return me && S && openPanel("me", null, meHtml()); }
+  if (a === "more") { const b = $(".panel .body"), y = b.scrollTop; histN += 100; $("#pbody").innerHTML = meHtml(); b.scrollTop = y; return; }
+  if (a === "view" && r) return openPanel("view", id, viewHtml(r));
+  if ((a === "watch" || a === "unwatch") && r) { setWatch(id, a === "watch"); $("#lists") && ($("#lists").innerHTML = listsHtml()); return openPanel("view", id, viewHtml(r)); }
+  if (a === "watch-next" && r) { setWatch(id, true); skipped.add(id); store.set("sougo.skip", [...skipped]); note = {m: "保留にしました。トップの「保留中」から、いつでも開けます。"}; render(); return openPanel("give", null, giveHtml()); }
   if (a === "ask") return openPanel("ask", null, askHtml());
   if (a === "give") return openPanel("give", null, giveHtml());
   if (a === "write" && r) return openPanel("write", id, writeHtml(r));

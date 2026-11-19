@@ -64,6 +64,20 @@ const W = parseInt(process.argv[2] || "400");
   if (W === 400 && process.env.SHOT) await p.screenshot({path: process.env.SHOT, fullPage: false});
   check("ほかの仲間が確かめて完結する", await p.evaluate(() => Object.values(__sr.S.circles).some(C => C.status === "complete")));
   await p.click("[data-act=back]"); await p.waitForTimeout(400);
+  // 保留：印をつけると、トップに並び、つなぐ相手の一覧の上に出る
+  const wid = await p.evaluate(() => Object.values(__sr.S.reqs).find(r => r.by !== __sr.me.pk && r.taker === __sr.me.pk && r.status === "done").id);   // 自分が見た依頼
+  await p.evaluate(id => __sr.act("view", id), wid); await p.waitForTimeout(350);
+  check("1件の依頼を開ける", (await p.textContent("#pbody h2")) === "依頼" && (await p.textContent("#pbody")).includes("保留する"));
+  await p.evaluate(id => __sr.act("watch", id), wid); await p.waitForTimeout(150);
+  check("保留すると外すボタンになる", (await p.textContent("#pbody")).includes("保留を外す"));
+  await p.click("[data-act=back]"); await p.waitForTimeout(400);
+  check("トップに保留中が並ぶ", (await p.textContent("#lists")).includes("保留中"));
+  const other = await p.evaluate(id => Object.values(__sr.S.reqs).find(r => r.id !== id && r.by !== __sr.me.pk && r.by !== __sr.S.reqs[id].by && !["hidden", "cancelled"].includes(r.status)
+    && !Object.values(__sr.S.circles).some(C => C.reqs.includes(id) && C.reqs.includes(r.id))), wid);
+  check("まだつながっていない依頼がある", !!other);
+  if (other) { await p.evaluate(id => __sr.act("linkfrom", id), other.id); await p.waitForTimeout(300);
+    check("つなぐ相手の一覧で、保留中が上に出る", (await p.textContent("#pbody [data-act=pick]")).includes("保留中"));
+    check("つなぐ相手は、自分が見た依頼だけ", await p.evaluate(() => [...document.querySelectorAll("#pbody [data-act=pick]")].every(b => __sr.S.reqs[b.dataset.id].taker === __sr.me.pk))); await p.click("[data-act=back]"); await p.waitForTimeout(400); }
   // しくみ・記録・払って戻る
   await p.click("[data-act=how]"); await p.waitForTimeout(350);
   check("しくみが開く", (await p.textContent("#pbody h2")) === "しくみ");
@@ -73,6 +87,7 @@ const W = parseInt(process.argv[2] || "400");
   check("横に払うと戻る", !(await p.evaluate(() => document.getElementById("panel").classList.contains("on"))));
   await p.click("[data-act=me]"); await p.waitForTimeout(350);
   check("あなたの記録が見える", (await p.textContent("#pbody")).includes("あなたの記録") && (await p.textContent("#pbody")).includes("見てあげた 1件"));
+  check("自分の出来事は件数つきで、依頼を開ける", (await p.textContent("#pbody")).includes("あなたの出来事（") && !!(await p.$("#pbody [data-act=view], #pbody [data-act=mine]")));
   check("記録に自分の出来事が並ぶ", (await p.textContent("#pbody")).includes("依頼") && (await p.textContent("#pbody")).includes("届けた"));
   await p.click("[data-act=back]"); await p.waitForTimeout(450);
   check("横にはみ出さない", !(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));

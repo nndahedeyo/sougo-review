@@ -72,8 +72,9 @@
         r.status = "given"; r.givenAt = e.created_at; r.used = String(c.used || "").slice(0, 60); r.body = c.body; r.reviewId = e.id; ok = true;
       }
       else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
-      // つなぐ：「この依頼とこの依頼は合いそう」。提案できるのは「役に立った」をもらったことのある人で、どちらの持ち主でもない人
-      else if (c.t === "link" && live(S.reqs[c.a]) && live(S.reqs[c.b]) && c.a !== c.b && u.helped >= 1) {
+      // つなぐ：「この依頼とこの依頼は合いそう」。提案できるのは「役に立った」をもらったことのある人で、どちらの持ち主でもない人。
+      // 2つのうち少なくとも1つは、自分がレビューを届けたことのある依頼（中身をよく知っている人がつなぐ）
+      else if (c.t === "link" && live(S.reqs[c.a]) && live(S.reqs[c.b]) && c.a !== c.b && u.helped >= 1 && (seen(S.reqs[c.a], e.pubkey) || seen(S.reqs[c.b], e.pubkey))) {
         const A = S.reqs[c.a], B = S.reqs[c.b], key = [A.by, B.by].sort().join(":");
         const ca = circleOf(A.id), cb = circleOf(B.id);
         if (A.by !== B.by && e.pubkey !== A.by && e.pubkey !== B.by && !pairs.has(key) && !(ca && ca === cb)) {
@@ -137,6 +138,8 @@
     return Object.values(by);
   }
 
-  const api = {reduce, contributions, R, GENRES, WANTS, gen, DAY};
+  // pk がレビューを届けたことのある依頼か（つなぐの条件）
+  const seen = (r, pk) => !!r && r.taker === pk && ["given", "done"].includes(r.status);
+  const api = {seen, reduce, contributions, R, GENRES, WANTS, gen, DAY};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Rules = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
