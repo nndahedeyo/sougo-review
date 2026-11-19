@@ -76,11 +76,11 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 </style>
 
 <div class="wrap">
-  <header><h1>相互レビュー</h1><div style="display:flex;gap:16px;align-items:center"><span class="status" id="net" title=""><i></i><span></span></span><button type="button" class="link" data-act="how">しくみ</button></div></header>
+  <header><h1 data-t>相互レビュー</h1><div style="display:flex;gap:16px;align-items:center"><span class="status" id="net" title=""><i></i><span></span></span><button type="button" class="link" data-act="how" data-t>しくみ</button></div></header>
   <main id="main"></main>
-  <p class="foot"><button type="button" class="link" data-act="me">記録とかぎ</button></p>
+  <p class="foot"><button type="button" class="link" data-act="me" data-t>記録とかぎ</button></p>
 </div>
-<div class="panel" id="panel" aria-hidden="true"><div class="bar"><button type="button" data-act="back">‹ 戻る</button></div><div class="body"><div class="inner" id="pbody"></div></div></div>
+<div class="panel" id="panel" aria-hidden="true"><div class="bar"><button type="button" data-act="back" data-t>‹ 戻る</button></div><div class="body"><div class="inner" id="pbody"></div></div></div>
 
 <script>
 /*__SIG__*/
@@ -92,10 +92,18 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 /*__RULES__*/
 </script>
 <script>
+/*__EN__*/
+</script>
+<script>
 "use strict";
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const now = () => Math.floor(Date.now() / 1000);
+// 言葉：端末の言語が日本語なら日本語、それ以外は英語（#en / #ja で切り替えて確かめられる）。どちらでも同じ依頼が回る
+const LANG = /#.*\ben\b/.test(location.hash) ? "en" : /#.*\bja\b/.test(location.hash) ? "ja" : /^ja\b/i.test(navigator.language || "ja") ? "ja" : "en";
+const t = (s, v) => { let o = LANG === "en" && EN[s] != null ? EN[s] : s; if (v) for (const k in v) o = o.split("{" + k + "}").join(v[k]); return o; };
+document.documentElement.lang = LANG;
+$$("[data-t]").forEach(el => { el.textContent = t(el.textContent); }); document.title = t("相互レビュー");
 const KIND = 7710, TAG = "sougo-review";
 const RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://relay.nostr.band"];
 const store = {
@@ -156,8 +164,8 @@ function toDemo() { mode = "demo"; loadEvents(); seedDemo().then(() => { recompu
 function netStatus() {
   const n = $("#net"), on = mode === "live" && openSockets().length > 0;
   n.className = "status" + (on ? " on" : "");
-  n.title = on ? "つながっています" : mode === "demo" ? "見本で動いています" : "つないでいます";
-  n.lastChild.textContent = mode === "demo" ? "見本" : "";
+  n.title = t(on ? "つながっています" : mode === "demo" ? "見本で動いています" : "つないでいます");
+  n.lastChild.textContent = mode === "demo" ? t("見本") : "";
 }
 
 /* ---------- 出す ---------- */
@@ -220,10 +228,14 @@ const askOf = r => r.private ? (plain[r.id] || null) : {link: r.link, ask: r.ask
 const revOf = r => r.private ? (rplain[r.id] || null) : (r.body ? {body: r.body, used: r.used} : null);
 
 /* ---------- 見本（つながらないときだけ。この端末の中だけで動き、外には出ない） ---------- */
-const DEMO = [
+const DEMO = LANG === "ja" ? [
   {name: "みどり", asks: [{link: "https://example.com/kakeibo", genres: ["use"], ask: "家計簿アプリの最初の登録で迷わないか"}]},
   {name: "Kaito", asks: [{link: "https://example.com/weather-api", genres: ["code"], ask: "天気を取ってくる部分のエラー処理が足りているか", private: true, hint: "天気アプリの通信まわり"}]},
   {name: "ことね", asks: [{link: "https://example.com/note-article", genres: ["text", "look"], ask: "初心者向けの記事です。専門用語が多すぎないか、読みやすい見た目か"}]},
+] : [
+  {name: "Midori", asks: [{link: "https://example.com/budget", genres: ["use"], ask: "Is the first sign-up step of my budget app easy to follow?"}]},
+  {name: "Kaito", asks: [{link: "https://example.com/weather-api", genres: ["code"], ask: "Is the error handling around the weather fetch good enough?", private: true, hint: "Networking in a weather app"}]},
+  {name: "Kotone", asks: [{link: "https://example.com/beginner-post", genres: ["text", "look"], ask: "A post for beginners. Too much jargon? Is it easy to read?"}]},
 ];
 const nextAt = () => { const newest = events.reduce((m, e) => e.created_at <= now() + 5 ? Math.max(m, e.created_at) : m, 0); return Math.max(now(), newest + 1); };
 const dsign = (k, content, at) => Sig.signEvent({kind: KIND, tags: [["t", TAG]], content: JSON.stringify(content), created_at: at || nextAt()}, k);
@@ -239,18 +251,21 @@ async function seedDemo() {
   const keys = store.get("sougo.demokeys", null) || DEMO.map(() => Sig.newKey());
   store.set("sougo.demokeys", keys);
   if (events.length) return;
-  let t = now() - 3600;
+  let at = now() - 3600;
   for (let i = 0; i < DEMO.length; i++) {
-    addEvent(await dsign(keys[i], {t: "hello", name: DEMO[i].name}, t++));
-    for (const a of DEMO[i].asks) addEvent(await dsign(keys[i], a.private ? await sealedAsk(keys[i], a) : {t: "ask", ...a}, t++));
+    addEvent(await dsign(keys[i], {t: "hello", name: DEMO[i].name}, at++));
+    for (const a of DEMO[i].asks) addEvent(await dsign(keys[i], a.private ? await sealedAsk(keys[i], a) : {t: "ask", ...a}, at++));
   }
 }
-const demoBody = gs => { const v = ["iPhone 15 / Safari で確かめました。", "最初のボタンの意味が分からず、少し止まりました。", "色と文字の大きさが見やすいです。", "最初の画面に一言の説明があると迷いません。"]; const b = {}; Rules.fields(gs).forEach((f, i) => b[f] = i === 0 ? v[0] : i === Rules.fields(gs).length - 1 ? v[3] : i === Rules.fields(gs).length - 2 ? v[2] : v[1]); return b; };
+const DEMO_TEXT = LANG === "ja"
+  ? {env: "iPhone 15 / Safari で確かめました。", mid: "最初のボタンの意味が分からず、少し止まりました。", good: "色と文字の大きさが見やすいです。", fix: "最初の画面に一言の説明があると迷いません。"}
+  : {env: "Checked on iPhone 15 / Safari.", mid: "I paused at the first button; its meaning was unclear.", good: "Colors and text size are easy to read.", fix: "A one-line hint on the first screen would help."};
+const demoBody = gs => { const b = {}; for (const f of Rules.fields(gs)) b[f] = DEMO_TEXT[f] || DEMO_TEXT.mid; return b; };
 function demoReact(c, ev) {
   const keys = store.get("sougo.demokeys", []), pkOf = j => Sig.hex(Sig.pubkey(Sig.unhex(keys[j])));
   const idx = pk => keys.findIndex((k, j) => pkOf(j) === pk);
   const later = (ms, fn) => setTimeout(async () => { const x = await fn(); if (x) addEvent(x); recompute(); live(); sync(); }, ms);
-  const R = 2;   // あなたの依頼を引き受ける見本の人（ことね）
+  const R = 2;   // あなたの依頼を引き受ける見本の人（3人目）
   if (c.t === "ask") {
     later(2500, () => dsign(keys[R], {t: "take", req: ev.id}));
     if (!c.private) later(6000, () => dsign(keys[R], {t: "give", req: ev.id, used: "Claude", body: demoBody(c.genres)}));
@@ -267,38 +282,42 @@ function demoReact(c, ev) {
 }
 
 /* ---------- 画面の部品 ---------- */
-const nameOf = pk => `${(S.users[pk] && S.users[pk].name) || "名前なし"}#${pk.slice(0, 4)}`;   // 同じ名前のなりすましと見分けるため、番号の頭4文字をつける
+const nameOf = pk => `${(S.users[pk] && S.users[pk].name) || t("名前なし")}#${pk.slice(0, 4)}`;   // 同じ名前のなりすましと見分けるため、番号の頭4文字をつける
 const starterNow = () => now() <= Rules.R.starterUntil;
 const mine = () => S.users[me.pk] || {tickets: starterNow() ? Rules.R.start : 0, gave: 0, got: 0};
 // 券がなくても出せるか（保険の借りが有効で、待っている依頼がどこにもないとき）
-const canAsk = () => { const t = mine().tickets; return t >= 1 || (Rules.R.borrow && t >= 0 && !Object.values(S.reqs).some(r => r.status === "open")); };
+const canAsk = () => { const tk = mine().tickets; return tk >= 1 || (Rules.R.borrow && tk >= 0 && !Object.values(S.reqs).some(r => r.status === "open")); };
 const shortLink = l => l.replace(/^https:\/\//, "").slice(0, 48);
-const host = l => { try { return new URL(l).host; } catch (e) { return ""; } };
-const gnames = r => r.genres.map(id => Rules.gen(id).name).join("・");
+const SEP = LANG === "ja" ? "・" : " · ";
+const gname = id => t(Rules.gen(id).name);
+const gnames = r => r.genres.map(gname).join(SEP);
 const titleOf = r => { const a = askOf(r); return a ? a.ask : r.hint; };
+// レビューの欄の名前（記録には記号で残し、画面で言葉にする）
+const FL = {env: "見た環境・範囲", good: "よかった所", fix: "直すとよい所"};
+const fieldLabel = f => f.startsWith("g:") && Rules.gen(f.slice(2)) ? t("{g}で気になった所", {g: gname(f.slice(2))}) : FL[f] ? t(FL[f]) : f;
 const ST = {open: "待っています", taken: "見てもらっています", given: "届きました", done: "完了", hidden: "閉じられました", cancelled: "取り下げ"};
-const doneText = r => r.ok ? "役に立った" : r.flaggedReview ? "知らせた" : "いまひとつ";
-const stateOf = r => r.status === "done" ? doneText(r) : ST[r.status];
+const doneText = r => t(r.ok ? "役に立った" : r.flaggedReview ? "知らせた" : "いまひとつ");
+const stateOf = r => r.status === "done" ? doneText(r) : t(ST[r.status]);
 function linkWarn(l) {
   const out = [];
-  if (/\.(exe|msi|apk|dmg|pkg|ipa|zip|rar|7z|bat|sh|scr|jar)(\?|#|$)/i.test(l)) out.push("ダウンロードのリンクです");
-  if (/(bit\.ly|tinyurl|t\.co|goo\.gl|is\.gd|cutt\.ly)\//i.test(l)) out.push("短縮リンクで、行き先が分かりません");
+  if (/\.(exe|msi|apk|dmg|pkg|ipa|zip|rar|7z|bat|sh|scr|jar)(\?|#|$)/i.test(l)) out.push(t("ダウンロードのリンクです"));
+  if (/(bit\.ly|tinyurl|t\.co|goo\.gl|is\.gd|cutt\.ly)\//i.test(l)) out.push(t("短縮リンクで、行き先が分かりません"));
   return out;
 }
 // 依頼1件の札。見てあげる人が判断に使うものだけを出す
 function reqCard(r, o = {}) {
   const a = askOf(r), u = S.users[r.by] || {};
-  const want = r.want === "human" ? "人の意見を希望" : r.want === "ai" ? `AIでの分析を希望${r.aiName ? `（${r.aiName}）` : ""}` : "";
+  const want = r.want === "human" ? t("人の意見を希望") : r.want === "ai" ? t("AIでの分析を希望") + (r.aiName ? `（${r.aiName}）` : "") : "";
   return `<div class="job">
-    <div class="pills">${r.genres.map(id => `<span class="pill">${esc(Rules.gen(id).name)}</span>`).join("")}${o.time ? `<span class="small">目安${Rules.minutes(r.genres)}分</span>` : ""}${r.private && !r.revealed ? `<span class="pill lock">非公開</span>` : ""}${o.state ? `<span class="pill">${esc(stateOf(r))}</span>` : ""}</div>
+    <div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${o.time ? `<span class="small">${t("目安{n}分", {n: Rules.minutes(r.genres)})}</span>` : ""}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}${o.state ? `<span class="pill">${esc(stateOf(r))}</span>` : ""}</div>
     <div class="ask">${esc(a ? a.ask : r.hint)}</div>
-    ${a ? (a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(a.link))}</a>${linkWarn(a.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}` : `<span class="small" style="color:var(--warm)">リンクが正しくありません</span>`)
-        : `<span class="small">中身は、引き受けると読めます</span>`}
-    <div class="pills small"><span>${esc(nameOf(r.by))}</span>${want ? `<span>・${esc(want)}</span>` : ""}${o.judge && !u.gave ? `<span class="pill">はじめての依頼</span>` : ""}${o.judge && u.judged ? `<span>・役に立ったを返す ${Math.round(100 * u.judgedOk / u.judged)}%</span>` : ""}${o.judge && u.flaggedAsks ? `<span class="pill lock">消された依頼 ${u.flaggedAsks}</span>` : ""}</div>
+    ${a ? (a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(a.link))}</a>${linkWarn(a.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}` : `<span class="small" style="color:var(--warm)">${t("リンクが正しくありません")}</span>`)
+        : `<span class="small">${t("中身は、引き受けると読めます")}</span>`}
+    <div class="pills small"><span>${esc(nameOf(r.by))}</span>${want ? `<span>${SEP}${esc(want)}</span>` : ""}${o.judge && !u.gave ? `<span class="pill">${t("はじめての依頼")}</span>` : ""}${o.judge && u.judged ? `<span>${SEP}${t("役に立ったを返す {n}%", {n: Math.round(100 * u.judgedOk / u.judged)})}</span>` : ""}${o.judge && u.flaggedAsks ? `<span class="pill lock">${t("消された依頼 {n}", {n: u.flaggedAsks})}</span>` : ""}</div>
   </div>`;
 }
-const reviewHtml = r => { const v = revOf(r); if (!v) return `<p class="empty">読めるようになるまで少し待ってください。</p>`;
-  return `<div class="rv">${Object.entries(v.body || {}).filter(([k, x]) => x).map(([k, x]) => `<div><b>${esc(k)}</b><p>${esc(x)}</p></div>`).join("")}<span class="small">${esc(nameOf(r.taker))}${v.used ? `・${esc(v.used)}` : ""}</span></div>`; };
+const reviewHtml = r => { const v = revOf(r); if (!v) return `<p class="empty">${t("読めるようになるまで少し待ってください。")}</p>`;
+  return `<div class="rv">${Object.entries(v.body || {}).filter(([k, x]) => x).map(([k, x]) => `<div><b>${esc(fieldLabel(k))}</b><p>${esc(x)}</p></div>`).join("")}<span class="small">${esc(nameOf(r.taker))}${v.used ? `${SEP}${esc(v.used)}` : ""}</span></div>`; };
 const item = (act, id, title, sub, pill, go) => `<button type="button" class="item" data-act="${act}" data-id="${id}"><div><b>${esc(title)}</b><span>${esc(sub)}</span></div>${pill ? `<span class="pill ${go ? "go" : ""}">${esc(pill)}</span>` : ""}</button>`;
 
 /* ---------- 保留（この端末の中だけ。だれにも見えない） ---------- */
@@ -316,12 +335,12 @@ const canTake = r => r.status === "open" && r.by !== me.pk && (S.users[r.by] || 
 function todo() {
   const out = [];
   for (const r of Object.values(S.reqs)) {
-    if (r.by === me.pk && r.status === "given") out.push(item("judge", r.id, "レビューが届きました", titleOf(r), "読む", true));
-    if (r.taker === me.pk && r.status === "taken") out.push(item("write", r.id, r.private && !r.shares[me.pk] ? "中身を待っています" : "書く番です", titleOf(r), "開く", true));
-    if (r.private && r.revealed && r.taker === me.pk && r.sealedReview && !r.reviewKey && !(store.get("sougo.keepPriv", []).includes(r.id))) out.push(item("view", r.id, "レビューを公開してよいですか", titleOf(r), "開く", true));
+    if (r.by === me.pk && r.status === "given") out.push(item("judge", r.id, t("レビューが届きました"), titleOf(r), t("読む"), true));
+    if (r.taker === me.pk && r.status === "taken") out.push(item("write", r.id, t(r.private && !r.shares[me.pk] ? "中身を待っています" : "書く番です"), titleOf(r), t("開く"), true));
+    if (r.private && r.revealed && r.taker === me.pk && r.sealedReview && !r.reviewKey && !(store.get("sougo.keepPriv", []).includes(r.id))) out.push(item("view", r.id, t("レビューを公開してよいですか"), titleOf(r), t("開く"), true));
   }
-  for (const l of Object.values(S.links)) if (l.status === "pending" && l.owners.includes(me.pk) && !l.yes.includes(me.pk)) out.push(item("answer", l.id, "つなぐ提案", `${nameOf(l.by)}から`, "開く", true));
-  for (const C of myCircles()) if (C.status === "made" && C.madeBy !== me.pk) out.push(item("circle", C.id, "「できた」が届きました", C.what || shortLink(C.url), "開く", true));
+  for (const l of Object.values(S.links)) if (l.status === "pending" && l.owners.includes(me.pk) && !l.yes.includes(me.pk)) out.push(item("answer", l.id, t("つなぐ提案"), t("{n}から", {n: nameOf(l.by)}), t("開く"), true));
+  for (const C of myCircles()) if (C.status === "made" && C.madeBy !== me.pk) out.push(item("circle", C.id, t("「できた」が届きました"), C.what || shortLink(C.url), t("開く"), true));
   return out;
 }
 function myCircles() { return Object.values(S.circles).filter(C => C.members.includes(me.pk)).sort((a, b) => b.at - a.at); }
@@ -332,38 +351,38 @@ const myAsks = () => Object.values(S.reqs).filter(r => r.by === me.pk && r.statu
 function render() {
   const m = $("#main");
   if (!me) {
-    m.innerHTML = `<p class="lead">1件見てあげると、<br>1件見てもらえる。</p>
-      <div style="margin-top:22px;display:grid;gap:12px"><input id="nm" maxlength="24" placeholder="呼び名" aria-label="呼び名" autocomplete="off">
-      <button type="button" class="primary wide" data-act="start">はじめる</button>
-      <p class="small" style="margin:0">登録もパスワードもいりません。${starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。"}</p></div>`;
+    m.innerHTML = `<p class="lead">${t("1件見てあげると、<br>1件見てもらえる。")}</p>
+      <div style="margin-top:22px;display:grid;gap:12px"><input id="nm" maxlength="24" placeholder="${t("呼び名")}" aria-label="${t("呼び名")}" autocomplete="off">
+      <button type="button" class="primary wide" data-act="start">${t("はじめる")}</button>
+      <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p></div>`;
     return;
   }
-  if (!S) { m.innerHTML = `<p class="empty">読み込んでいます…</p>`; return; }
+  if (!S) { m.innerHTML = `<p class="empty">${t("読み込んでいます…")}</p>`; return; }
   m.innerHTML = `<div class="wallet" id="wallet"><span class="who">${esc(me.name)}</span><span class="tk" id="tk">${tixHtml()}</span></div>
     <div id="note">${noteHtml()}</div>
-    <div class="two"><button type="button" class="primary" data-act="ask">見てもらう<small>券1枚</small></button><button type="button" data-act="give">見てあげる<small id="cnt">${cntText()}</small></button></div>
+    <div class="two"><button type="button" class="primary" data-act="ask">${t("見てもらう")}<small>${t("券1枚")}</small></button><button type="button" data-act="give">${t("見てあげる")}<small id="cnt">${cntText()}</small></button></div>
     <div id="lists">${listsHtml()}</div>`;
 }
-const cntText = () => { const c = candidates().length; return c ? `${c}件` : "いまはなし"; };
+const cntText = () => { const c = candidates().length; return c ? t("{n}件", {n: c}) : t("いまはなし"); };
 function listsHtml() {
-  const t = todo(), a = myAsks(), cs = myCircles(), w = watchList();
-  return (t.length ? `<h3>あなたの番</h3>${t.join("")}` : "")
-    + `<h3>あなたの依頼</h3>` + (a.length ? a.map(r => item(r.status === "given" ? "judge" : "mine", r.id, titleOf(r), gnames(r) + (r.private && !r.revealed ? "・非公開" : ""), stateOf(r), r.status === "given")).join("") : `<p class="empty">まだありません</p>`)
-    + (cs.length ? `<h3>集まり</h3>${cs.map(C => item("circle", C.id, `${C.members.length}人・${C.reqs.length}件`, C.members.map(nameOf).join("、").slice(0, 48), CST[C.status], C.status === "complete")).join("")}` : "")
-    + (w.length ? `<h3>保留</h3>${w.map(r => item("view", r.id, titleOf(r), `${gnames(r)}・${nameOf(r.by)}`, stateOf(r))).join("")}` : "");
+  const td = todo(), a = myAsks(), cs = myCircles(), w = watchList();
+  return (td.length ? `<h3>${t("あなたの番")}</h3>${td.join("")}` : "")
+    + `<h3>${t("あなたの依頼")}</h3>` + (a.length ? a.map(r => item(r.status === "given" ? "judge" : "mine", r.id, titleOf(r), gnames(r) + (r.private && !r.revealed ? SEP + t("非公開") : ""), stateOf(r), r.status === "given")).join("") : `<p class="empty">${t("まだありません")}</p>`)
+    + (cs.length ? `<h3>${t("集まり")}</h3>${cs.map(C => item("circle", C.id, t("{m}人・{r}件", {m: C.members.length, r: C.reqs.length}), C.members.map(nameOf).join(LANG === "ja" ? "、" : ", ").slice(0, 48), t(CST[C.status]), C.status === "complete")).join("")}` : "")
+    + (w.length ? `<h3>${t("保留中")}</h3>${w.map(r => item("view", r.id, titleOf(r), `${gnames(r)}${SEP}${nameOf(r.by)}`, stateOf(r))).join("")}` : "");
 }
-const noteHtml = () => note ? `<div class="note ${note.k || ""}"><span>${esc(note.m)}</span><button type="button" data-act="dismiss" aria-label="閉じる">×</button></div>` : "";
-const tixHtml = () => { const t = mine().tickets; if (t < 0) return `<span>券</span><b id="tix">0</b><span>枚・借り${-t}</span>`;
-  const w = Math.floor(t), h = t - w >= 0.5; return `<span>券</span><b id="tix">${w}</b><span>枚</span>${h ? `<span style="margin-left:6px">＋半券</span>` : ""}`; };
+const noteHtml = () => note ? `<div class="note ${note.k || ""}"><span>${esc(note.m)}</span><button type="button" data-act="dismiss" aria-label="${t("閉じる")}">×</button></div>` : "";
+const tixHtml = () => { const tk = mine().tickets; if (tk < 0) return `<span>${t("券")}</span><b id="tix">0</b><span>${t("枚・借り{n}", {n: -tk})}</span>`;
+  const w = Math.floor(tk), h = tk - w >= 0.5; return `<span>${t("券")}</span><b id="tix">${w}</b><span>${t("枚")}</span>${h ? `<span style="margin-left:6px">${t("＋半券")}</span>` : ""}`; };
 let lastTix = null;
 function live() {
   if (!me || !S) return;
   if (!$("#wallet")) return render();
   const u = mine();
   $("#tk").innerHTML = tixHtml(); $("#lists").innerHTML = listsHtml(); $("#cnt").textContent = cntText();
-  if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: u.tickets - lastTix >= 1 ? "券が1枚増えました" : "半券をもらいました（2枚で券1枚）"}; $("#note").innerHTML = noteHtml(); }
+  if (lastTix !== null && u.tickets > lastTix) { const el = $("#wallet"); el.classList.remove("glow"); void el.offsetWidth; el.classList.add("glow"); note = {m: t(u.tickets - lastTix >= 1 ? "券が1枚増えました" : "半券をもらいました（2枚で券1枚）")}; $("#note").innerHTML = noteHtml(); }
   lastTix = u.tickets;
-  if (u.gave >= 1 && !store.get("sougo.backed", 0) && !store.get("sougo.nudged", 0) && !note) { store.set("sougo.nudged", 1); note = {m: "「記録とかぎ」でかぎを書き写しておくと、端末を替えても続けられます"}; $("#note").innerHTML = noteHtml(); }
+  if (u.gave >= 1 && !store.get("sougo.backed", 0) && !store.get("sougo.nudged", 0) && !note) { store.set("sougo.nudged", 1); note = {m: t("「記録とかぎ」でかぎを書き写しておくと、端末を替えても続けられます")}; $("#note").innerHTML = noteHtml(); }
   if (openId) refreshPanel();
 }
 
@@ -376,7 +395,7 @@ function refreshPanel() {
   // 開いている画面の中身が古くなったときだけ描き直す（入力中の欄には触らない）
   const r = S.reqs[openId];
   if (openKind === "write" && r) {
-    if (r.taker !== me.pk) { const m = $("#w-msg"); if (m && !m.dataset.lost) { m.dataset.lost = 1; m.textContent = "この依頼は期限が過ぎたか、ほかの人に移りました。"; } }
+    if (r.taker !== me.pk) { const m = $("#w-msg"); if (m && !m.dataset.lost) { m.dataset.lost = 1; m.textContent = t("この依頼は期限が過ぎたか、ほかの人に移りました。"); } }
     else if ($("#w-wait") && (askOf(r) || broken.has(r.id))) $("#pbody").innerHTML = writeHtml(r);
   }
   if ((openKind === "mine" || openKind === "judge") && r) $("#pbody").innerHTML = openKind === "judge" && r.status === "given" ? judgeHtml(r) : mineHtml(r);
@@ -385,68 +404,68 @@ function refreshPanel() {
   if (openKind === "circle" && S.circles[openId] && !$("#m-url:focus,#m-what:focus")) $("#pbody").innerHTML = circleHtml(S.circles[openId]);
 }
 const chips = (name, opts, cur, multi) => `<div class="chips" role="group">${opts.map(([v, l]) => `<button type="button" data-chip="${name}" data-v="${v}" ${multi ? 'data-multi="1"' : ""} aria-pressed="${multi ? cur.includes(v) : cur === v}">${esc(l)}</button>`).join("")}</div>`;
-const PUB_NOTE = "だれでも読めます。秘密・個人情報・特許を取りたいものは出さないでください。";
-const PRIV_NOTE = "中身は、引き受けた人だけが読めます。中身を見て選べないぶん、引き受けてもらいにくくなります。";
+const PUB_NOTE = t("だれでも読めます。秘密・個人情報・特許を取りたいものは出さないでください。");
+const PRIV_NOTE = t("中身は、引き受けた人だけが読めます。中身を見て選べないぶん、引き受けてもらいにくくなります。");
 function askHtml() {
   const no = !canAsk();
-  return `<h2>見てもらう</h2>
-    <div class="seg" role="group" aria-label="公開か非公開か">${[["pub", "公開"], ["priv", "非公開"]].map(([v, l]) => `<button type="button" data-chip="priv" data-v="${v}" aria-pressed="${(v === "priv") === pick.priv}">${l}</button>`).join("")}</div>
-    <input id="a-link" inputmode="url" placeholder="見てほしいもののリンク https://" aria-label="見てほしいもののリンク" autocomplete="off">
-    <div><div class="lbl">見てほしい所（いくつでも）</div>${chips("genres", Rules.GENRES.map(x => [x.id, x.name]), pick.genres, true)}</div>
-    <textarea id="a-ask" maxlength="400" placeholder="見てほしい点（1つか2つに絞ると引き受けてもらいやすい）" aria-label="見てほしい点"></textarea>
-    <input id="a-hint" maxlength="80" placeholder="みんなに見せるひとこと（例：家計簿の新しい画面）" aria-label="みんなに見せるひとこと" autocomplete="off" ${pick.priv ? "" : "hidden"}>
-    <div><div class="lbl">だれに</div>${chips("want", [["any", "どなたでも"], ["human", "人"], ["ai", "AI"]], pick.want)}
-      <input id="a-ai" placeholder="AIの名前（あれば）" aria-label="AIの名前" autocomplete="off" style="margin-top:8px" ${pick.want === "ai" ? "" : "hidden"}></div>
+  return `<h2>${t("見てもらう")}</h2>
+    <div class="seg" role="group" aria-label="${t("公開か非公開か")}">${[["pub", "公開"], ["priv", "非公開"]].map(([v, l]) => `<button type="button" data-chip="priv" data-v="${v}" aria-pressed="${(v === "priv") === pick.priv}">${t(l)}</button>`).join("")}</div>
+    <input id="a-link" inputmode="url" placeholder="${t("見てほしいもののリンク https://")}" aria-label="${t("見てほしいもののリンク")}" autocomplete="off">
+    <div><div class="lbl">${t("見てほしい所（いくつでも）")}</div>${chips("genres", Rules.GENRES.map(x => [x.id, gname(x.id)]), pick.genres, true)}</div>
+    <textarea id="a-ask" maxlength="400" placeholder="${t("見てほしい点（1つか2つに絞ると引き受けてもらいやすい）")}" aria-label="${t("見てほしい点")}"></textarea>
+    <input id="a-hint" maxlength="80" placeholder="${t("みんなに見せるひとこと（例：家計簿の新しい画面）")}" aria-label="${t("みんなに見せるひとこと")}" autocomplete="off" ${pick.priv ? "" : "hidden"}>
+    <div><div class="lbl">${t("だれに")}</div>${chips("want", [["any", t("どなたでも")], ["human", t("人")], ["ai", "AI"]], pick.want)}
+      <input id="a-ai" placeholder="${t("AIの名前（あれば）")}" aria-label="${t("AIの名前")}" autocomplete="off" style="margin-top:8px" ${pick.want === "ai" ? "" : "hidden"}></div>
     <p class="small" id="a-note" style="margin:0">${pick.priv ? PRIV_NOTE : PUB_NOTE}</p>
     <p class="small" id="a-msg" style="margin:0;color:var(--warm)" role="alert"></p>
-    <button type="button" class="primary wide" data-act="send-ask" ${no ? "disabled" : ""}>出す（券1枚）</button>
-    ${no ? `<p class="small" style="margin:0">券がありません。だれかを見てあげると増えます。紹介してくれる人から贈ってもらうこともできます（「記録とかぎ」の番号を伝える）。</p>` : ""}`;
+    <button type="button" class="primary wide" data-act="send-ask" ${no ? "disabled" : ""}>${t("出す（券1枚）")}</button>
+    ${no ? `<p class="small" style="margin:0">${t("券がありません。だれかを見てあげると増えます。紹介してくれる人から贈ってもらうこともできます（「記録とかぎ」の番号を伝える）。")}</p>` : ""}`;
 }
 function giveHtml() {
   const list = candidates();
-  if (!list.length) return `<h2>見てあげる</h2><p class="empty">いま待っている依頼はありません。</p>${skipped.size ? `<button type="button" class="link" data-act="unskip">見送った依頼をもう一度見る</button>` : ""}`;
+  if (!list.length) return `<h2>${t("見てあげる")}</h2><p class="empty">${t("いま待っている依頼はありません。")}</p>${skipped.size ? `<button type="button" class="link" data-act="unskip">${t("見送った依頼をもう一度見る")}</button>` : ""}`;
   const r = list[0], u = mine(), canFlag = (u.helped || 0) >= 1 && (!r.private || r.revealed);
-  return `<h2>見てあげる</h2>${reqCard(r, {time: true, judge: true})}
-    <p class="small" style="margin:0">開くときは、ウォレットをつながない・署名しない・かぎを入れない。</p>
-    <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">ほかを見る<small>何も減らない</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">引き受ける<small>${Rules.R.writeDays}日以内に書く</small></button></div>
-    <div class="row"><button type="button" class="link" data-act="watch-next" data-id="${r.id}">保留</button>${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">つなぐ</button>` : ""}${canFlag ? `<button type="button" class="link warm" data-act="flag-ask" data-id="${r.id}">危ない依頼</button>` : ""}</div>`;
+  return `<h2>${t("見てあげる")}</h2>${reqCard(r, {time: true, judge: true})}
+    <p class="small" style="margin:0">${t("開くときは、ウォレットをつながない・署名しない・かぎを入れない。")}</p>
+    <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">${t("ほかを見る")}<small>${t("何も減らない")}</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">${t("引き受ける")}<small>${t("{n}日以内に書く", {n: Rules.R.writeDays})}</small></button></div>
+    <div class="row"><button type="button" class="link" data-act="watch-next" data-id="${r.id}">${t("保留")}</button>${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">${t("つなぐ")}</button>` : ""}${canFlag ? `<button type="button" class="link warm" data-act="flag-ask" data-id="${r.id}">${t("危ない依頼")}</button>` : ""}</div>`;
 }
 function writeHtml(r) {
   const a = askOf(r), fs = Rules.fields(r.genres), canFlag = r.private && !r.revealed && (mine().helped || 0) >= 1 && a;
-  if (!a && broken.has(r.id)) return `<h2>レビューを書く</h2>${reqCard(r)}<p class="empty">中身を開けませんでした。手放すと、何も減りません。</p>
-    <button type="button" class="primary wide" data-act="release" data-id="${r.id}">手放す</button><p class="small" id="w-msg" role="alert"></p>`;
-  if (!a) return `<h2>レビューを書く</h2>${reqCard(r)}<p class="empty" id="w-wait">持ち主から中身が届くのを待っています。届くとここに出ます。${Rules.R.writeDays}日は、届いてから数えます。</p>
-    <button type="button" class="link" data-act="release" data-id="${r.id}">手放す</button><p class="small" id="w-msg" role="alert"></p>`;
-  return `<h2>レビューを書く</h2>${reqCard(r)}
-    ${fs.map((f, i) => `<label>${esc(f)}<textarea data-field="${esc(f)}" id="w${i}"></textarea></label>`).join("")}
-    <input id="w-used" placeholder="使ったAI（あれば）" aria-label="使ったAI" autocomplete="off">
-    ${r.private ? `<p class="small" style="margin:0">このレビューは、依頼した人だけが読めます。</p>` : ""}
+  if (!a && broken.has(r.id)) return `<h2>${t("レビューを書く")}</h2>${reqCard(r)}<p class="empty">${t("中身を開けませんでした。手放すと、何も減りません。")}</p>
+    <button type="button" class="primary wide" data-act="release" data-id="${r.id}">${t("手放す")}</button><p class="small" id="w-msg" role="alert"></p>`;
+  if (!a) return `<h2>${t("レビューを書く")}</h2>${reqCard(r)}<p class="empty" id="w-wait">${t("持ち主から中身が届くのを待っています。届くとここに出ます。{n}日は、届いてから数えます。", {n: Rules.R.writeDays})}</p>
+    <button type="button" class="link" data-act="release" data-id="${r.id}">${t("手放す")}</button><p class="small" id="w-msg" role="alert"></p>`;
+  return `<h2>${t("レビューを書く")}</h2>${reqCard(r)}
+    ${fs.map((f, i) => `<label>${esc(fieldLabel(f))}<textarea data-field="${esc(f)}" id="w${i}"></textarea></label>`).join("")}
+    <input id="w-used" placeholder="${t("使ったAI（あれば）")}" aria-label="${t("使ったAI")}" autocomplete="off">
+    ${r.private ? `<p class="small" style="margin:0">${t("このレビューは、依頼した人だけが読めます。")}</p>` : ""}
     <p class="small" id="w-msg" style="margin:0;color:var(--warm)" role="alert"></p>
-    <button type="button" class="primary wide" data-act="send-give" data-id="${r.id}">届ける</button>
-    <div class="row"><button type="button" class="link" data-act="release" data-id="${r.id}">手放す</button>${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">つなぐ</button>` : ""}${canFlag ? `<button type="button" class="link warm" data-act="flag-ask" data-id="${r.id}">危ない依頼</button>` : ""}</div>`;
+    <button type="button" class="primary wide" data-act="send-give" data-id="${r.id}">${t("届ける")}</button>
+    <div class="row"><button type="button" class="link" data-act="release" data-id="${r.id}">${t("手放す")}</button>${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">${t("つなぐ")}</button>` : ""}${canFlag ? `<button type="button" class="link warm" data-act="flag-ask" data-id="${r.id}">${t("危ない依頼")}</button>` : ""}</div>`;
 }
 function judgeHtml(r) {
-  return `<h2>届いたレビュー</h2><div class="job"><span class="small">${esc(titleOf(r))}</span>${reviewHtml(r)}</div>
-    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">いまひとつ<small>相手に半券</small></button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">役に立った<small>相手に券1枚</small></button></div>
-    <div class="row"><button type="button" class="link warm" data-act="flag-review" data-id="${r.id}">危ない・ひどいレビュー</button></div>`;
+  return `<h2>${t("届いたレビュー")}</h2><div class="job"><span class="small">${esc(titleOf(r))}</span>${reviewHtml(r)}</div>
+    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">${t("いまひとつ")}<small>${t("相手に半券")}</small></button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">${t("役に立った")}<small>${t("相手に券1枚")}</small></button></div>
+    <div class="row"><button type="button" class="link warm" data-act="flag-review" data-id="${r.id}">${t("危ない・ひどいレビュー")}</button></div>`;
 }
 function mineHtml(r) {
   const priv = r.private && !r.revealed;
-  return `<h2>あなたの依頼</h2>${reqCard(r, {state: true})}
-    ${r.taker && r.status !== "open" ? `<p class="small" style="margin:0">${r.status === "taken" ? "見てくれている人" : "見てくれた人"}：${esc(nameOf(r.taker))}</p>` : ""}
+  return `<h2>${t("あなたの依頼")}</h2>${reqCard(r, {state: true})}
+    ${r.taker && r.status !== "open" ? `<p class="small" style="margin:0">${t(r.status === "taken" ? "見てくれている人" : "見てくれた人")}${LANG === "ja" ? "：" : ": "}${esc(nameOf(r.taker))}</p>` : ""}
     ${r.status === "done" ? `<div class="job">${reviewHtml(r)}</div>` : ""}
-    ${r.private && r.revealed && r.sealedReview && !r.reviewKey ? `<p class="small" style="margin:0">レビューは、書いた人が許すと公開されます。</p>` : ""}
-    ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">取り下げる（券が戻る）</button>` : ""}
-    ${priv && isLive(r) ? `<button type="button" data-act="reveal" data-id="${r.id}">公開する</button><p class="small" style="margin:0">公開すると、中身をだれでも読めるようになります。元には戻せません。</p>` : ""}`;
+    ${r.private && r.revealed && r.sealedReview && !r.reviewKey ? `<p class="small" style="margin:0">${t("レビューは、書いた人が許すと公開されます。")}</p>` : ""}
+    ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">${t("取り下げる（券が戻る）")}</button>` : ""}
+    ${priv && isLive(r) ? `<button type="button" data-act="reveal" data-id="${r.id}">${t("公開する")}</button><p class="small" style="margin:0">${t("公開すると、中身をだれでも読めるようになります。元には戻せません。")}</p>` : ""}`;
 }
 function viewHtml(r) {
   const on = watched().has(r.id), ask = r.private && r.revealed && r.taker === me.pk && r.sealedReview && !r.reviewKey;
-  return `<h2>依頼</h2>${reqCard(r, {state: true, time: r.status === "open", judge: r.status === "open"})}
+  return `<h2>${t("依頼")}</h2>${reqCard(r, {state: true, time: r.status === "open", judge: r.status === "open"})}
     ${(r.status === "done" || r.status === "given") && revOf(r) && (r.taker === me.pk || !r.private || r.reviewKey) ? `<div class="job">${reviewHtml(r)}</div>` : ""}
-    ${ask ? `<div class="job"><b>レビューも公開してよいですか</b><span class="small">依頼した人が中身を公開しました。あなたのレビューは、あなたが許したときだけ公開されます。</span>
-      <div class="two" style="margin-top:0"><button type="button" data-act="keep-review" data-id="${r.id}">公開しない</button><button type="button" class="primary" data-act="open-review" data-id="${r.id}">公開してよい</button></div></div>` : ""}
-    ${canTake(r) ? `<button type="button" class="primary wide" data-act="take" data-id="${r.id}">引き受ける</button>` : ""}
-    <div class="row">${r.by !== me.pk ? `<button type="button" class="link" data-act="${on ? "unwatch" : "watch"}" data-id="${r.id}">${on ? "保留を外す" : "保留"}</button>` : ""}${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">つなぐ</button>` : ""}</div>`;
+    ${ask ? `<div class="job"><b>${t("レビューも公開してよいですか")}</b><span class="small">${t("依頼した人が中身を公開しました。あなたのレビューは、あなたが許したときだけ公開されます。")}</span>
+      <div class="two" style="margin-top:0"><button type="button" data-act="keep-review" data-id="${r.id}">${t("公開しない")}</button><button type="button" class="primary" data-act="open-review" data-id="${r.id}">${t("公開してよい")}</button></div></div>` : ""}
+    ${canTake(r) ? `<button type="button" class="primary wide" data-act="take" data-id="${r.id}">${t("引き受ける")}</button>` : ""}
+    <div class="row">${r.by !== me.pk ? `<button type="button" class="link" data-act="${on ? "unwatch" : "watch"}" data-id="${r.id}">${t(on ? "保留を外す" : "保留")}</button>` : ""}${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">${t("つなぐ")}</button>` : ""}</div>`;
 }
 
 /* ---------- つなぐ・集まり ---------- */
@@ -459,33 +478,33 @@ function linkables(A) {
     .sort((a, b) => (w.has(b.id) - w.has(a.id)) || b.at - a.at).filter((r, i) => i < 15 || w.has(r.id));
 }
 const canLink = r => (mine().helped || 0) >= 1 && r.by !== me.pk && linkables(r).length > 0;
-const reqMini = r => `<div class="job" style="gap:4px"><div class="pills">${r.genres.map(id => `<span class="pill">${esc(Rules.gen(id).name)}</span>`).join("")}${r.private && !r.revealed ? `<span class="pill lock">非公開</span>` : ""}<span class="small">${esc(nameOf(r.by))}</span></div><div>${esc(titleOf(r))}</div>${askOf(r) && askOf(r).link ? `<a href="${esc(askOf(r).link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(askOf(r).link))}</a>` : ""}</div>`;
+const reqMini = r => `<div class="job" style="gap:4px"><div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}<span class="small">${esc(nameOf(r.by))}</span></div><div>${esc(titleOf(r))}</div>${askOf(r) && askOf(r).link ? `<a href="${esc(askOf(r).link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(askOf(r).link))}</a>` : ""}</div>`;
+const wPill = r => watched().has(r.id) ? `<span class="pill">${t("保留中")}</span>` : "";
 function linkHtml(A) {
   const L = linkables(A);
-  return `<h2>つなぐ</h2>${reqMini(A)}
-    <div class="lbl" style="margin:0">どの依頼と？</div>
-    ${L.length ? `<div style="display:grid;gap:8px">${L.map(r => `<button type="button" class="item" data-act="pick" data-id="${r.id}" aria-pressed="${linkPick === r.id}" style="${linkPick === r.id ? "outline:2px solid var(--acc)" : ""}"><div><b>${esc(titleOf(r)).slice(0, 50)}</b><span>${esc(gnames(r))}・${esc(nameOf(r.by))}</span></div>${w(r)}</button>`).join("")}</div>` : `<p class="empty">いまつなげる依頼はありません</p>`}
-    <textarea id="l-why" maxlength="300" placeholder="合いそうだと思った理由（ひとこと）" aria-label="理由"></textarea>
+  return `<h2>${t("つなぐ")}</h2>${reqMini(A)}
+    <div class="lbl" style="margin:0">${t("どの依頼と？")}</div>
+    ${L.length ? `<div style="display:grid;gap:8px">${L.map(r => `<button type="button" class="item" data-act="pick" data-id="${r.id}" aria-pressed="${linkPick === r.id}" style="${linkPick === r.id ? "outline:2px solid var(--acc)" : ""}"><div><b>${esc(titleOf(r).slice(0, 50))}</b><span>${esc(gnames(r))}${SEP}${esc(nameOf(r.by))}</span></div>${wPill(r)}</button>`).join("")}</div>` : `<p class="empty">${t("いまつなげる依頼はありません")}</p>`}
+    <textarea id="l-why" maxlength="300" placeholder="${t("合いそうだと思った理由（ひとこと）")}" aria-label="${t("理由")}"></textarea>
     <p class="small" id="l-msg" style="margin:0;color:var(--warm)" role="alert"></p>
-    <button type="button" class="primary wide" data-act="send-link" data-id="${A.id}">提案する</button>
-    <p class="small" style="margin:0">両方の持ち主が受けると集まりができ、あなたに券が1枚入ります。</p>`;
+    <button type="button" class="primary wide" data-act="send-link" data-id="${A.id}">${t("提案する")}</button>
+    <p class="small" style="margin:0">${t("両方の持ち主が受けると集まりができ、あなたに券が1枚入ります。")}</p>`;
 }
-const w = r => watched().has(r.id) ? `<span class="pill">保留</span>` : "";
 function answerHtml(l) {
   const A = S.reqs[l.a], B = S.reqs[l.b];
-  return `<h2>つなぐ提案</h2><p class="small" style="margin:0">${esc(nameOf(l.by))}から</p>${A ? reqMini(A) : ""}${B ? reqMini(B) : ""}
+  return `<h2>${t("つなぐ提案")}</h2><p class="small" style="margin:0">${esc(t("{n}から", {n: nameOf(l.by)}))}</p>${A ? reqMini(A) : ""}${B ? reqMini(B) : ""}
     ${l.why ? `<div class="job"><div>${esc(l.why)}</div></div>` : ""}
-    <div class="two" style="margin-top:0"><button type="button" data-act="answer-no" data-id="${l.id}">断る</button><button type="button" class="primary" data-act="answer-ok" data-id="${l.id}">受ける</button></div>
-    <p class="small" style="margin:0">両方が受けると、3人の集まりができます。</p>`;
+    <div class="two" style="margin-top:0"><button type="button" data-act="answer-no" data-id="${l.id}">${t("断る")}</button><button type="button" class="primary" data-act="answer-ok" data-id="${l.id}">${t("受ける")}</button></div>
+    <p class="small" style="margin:0">${t("両方が受けると、3人の集まりができます。")}</p>`;
 }
 function circleHtml(C) {
   const rec = Rules.contributions(S, C.id);
-  return `<h2>集まり</h2><span class="pill" style="justify-self:start">${CST[C.status]}</span>
+  return `<h2>${t("集まり")}</h2><span class="pill" style="justify-self:start">${t(CST[C.status])}</span>
     <div style="display:grid;gap:8px">${C.reqs.map(id => S.reqs[id]).filter(Boolean).map(reqMini).join("")}</div>
-    <div class="job"><b>貢献の記録</b>${rec.map(x => `<div class="hist"><span>${esc(nameOf(x.pk))}</span><span>${[x.asked && `依頼 ${x.asked}`, x.reviewed && `見た ${x.reviewed}`, x.linked && `つないだ ${x.linked}`, x.made && "できた"].filter(Boolean).join("・")}</span></div>`).join("")}</div>
-    ${C.status === "active" ? `<div class="job"><b>形になったら</b><input id="m-url" inputmode="url" placeholder="できたもののリンク https://" aria-label="できたもののリンク" autocomplete="off"><input id="m-what" maxlength="300" placeholder="ひとこと" aria-label="ひとこと" autocomplete="off"><button type="button" class="primary wide" data-act="made" data-id="${C.id}">できた</button><span class="small">ほかの仲間が「確かに」と押すと完結します。</span></div>` : ""}
-    ${C.status !== "active" ? `<div class="job"><b>できたもの</b><a href="${esc(C.url)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(C.url))}</a>${C.what ? `<div>${esc(C.what)}</div>` : ""}<span class="small">${esc(nameOf(C.madeBy))}${C.confirmedBy ? `・確かめた人 ${esc(nameOf(C.confirmedBy))}` : ""}</span>
-      ${C.status === "made" && C.madeBy !== me.pk ? `<button type="button" class="primary wide" data-act="confirm" data-id="${C.id}">確かに</button>` : ""}</div>` : ""}`;
+    <div class="job"><b>${t("貢献の記録")}</b>${rec.map(x => `<div class="hist"><span>${esc(nameOf(x.pk))}</span><span>${[x.asked && t("依頼 {n}", {n: x.asked}), x.reviewed && t("見た {n}", {n: x.reviewed}), x.linked && t("つないだ {n}", {n: x.linked}), x.made && t("できた")].filter(Boolean).join(SEP)}</span></div>`).join("")}</div>
+    ${C.status === "active" ? `<div class="job"><b>${t("形になったら")}</b><input id="m-url" inputmode="url" placeholder="${t("できたもののリンク https://")}" aria-label="${t("できたもののリンク")}" autocomplete="off"><input id="m-what" maxlength="300" placeholder="${t("ひとこと")}" aria-label="${t("ひとこと")}" autocomplete="off"><button type="button" class="primary wide" data-act="made" data-id="${C.id}">${t("できた")}</button><span class="small">${t("ほかの仲間が「確かに」と押すと完結します。")}</span></div>` : ""}
+    ${C.status !== "active" ? `<div class="job"><b>${t("できたもの")}</b><a href="${esc(C.url)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(C.url))}</a>${C.what ? `<div>${esc(C.what)}</div>` : ""}<span class="small">${esc(nameOf(C.madeBy))}${C.confirmedBy ? SEP + esc(t("確かめた人 {n}", {n: nameOf(C.confirmedBy)})) : ""}</span>
+      ${C.status === "made" && C.madeBy !== me.pk ? `<button type="button" class="primary wide" data-act="confirm" data-id="${C.id}">${t("確かに")}</button>` : ""}</div>` : ""}`;
 }
 
 /* ---------- しくみ・記録 ---------- */
@@ -494,9 +513,10 @@ const HOW = [
   ["始め方", "2026年のうちに始めた人には、最初の券が1枚あります。2027年からは、だれかを見てあげて券をもらうか、紹介してくれる人から券を贈ってもらって始めます。"],
   ["紹介", "「役に立った」をもらったことのある人は、自分の券を1枚、ほかの人に贈れます。相手の番号（「記録とかぎ」にあります）が要ります。"],
   ["見送りは自由", "こなせそうなものだけ引き受けます。見送っても何も減りません。"],
-  ["期限", `引き受けたら${Rules.R.writeDays}日以内に届けます。届かなければほかの人に戻ります。届いて${Rules.R.judgeDays}日返事がなければ「役に立った」になります。`],
+  ["期限", "引き受けたら{w}日以内に届けます。届かなければほかの人に戻ります。届いて{j}日返事がなければ「役に立った」になります。"],
   ["人もAIも", "だれが書いても券は同じ1枚です。依頼するときに、人かAIか希望を出せます。"],
   ["公開と非公開", "公開の依頼とレビューは、だれでも読めます。非公開の中身は引き受けた人だけ、レビューは依頼した人だけが読めます。あとから公開もできます（レビューは書いた人が許したときだけ）。読んだ人が書き写すことまでは防げません。"],
+  ["言葉", "依頼もレビューも、書いた人の言葉のまま届きます。言葉の違う人どうしでも、同じ依頼が回ります。"],
   ["保留", "気になる依頼に印をつけておけます。印はこの端末の中だけにあります。"],
   ["つなぐ", "「役に立った」をもらったことのある人は、合いそうな2つの依頼をつなげます。1つは自分がレビューを届けた依頼です。両方の持ち主が受けると集まりができ、つないだ人に券が1枚入ります。"],
   ["集まりと、できた", "形になったら仲間が「できた」を出し、ほかの仲間が「確かに」と押すと完結します。だれが依頼し、見て、つなぎ、形にしたかが残ります。"],
@@ -506,28 +526,28 @@ const HOW = [
   ["決まりを変えるとき", "変えた日と中身を、だれでも読める変更記録（CHANGES.md）に残します。"],
   ["運営がいない", "出来事は端末で署名され、だれでも使える中継（Nostr）に置かれます。券の数は、だれの画面でも同じ決まりで数え直されます。"],
 ];
-const howHtml = () => `<h2>しくみ</h2><div class="how" style="display:grid;gap:16px">${HOW.map(([t, b]) => `<div><h4>${t}</h4><p>${b}</p></div>`).join("")}</div>`;
+const howHtml = () => `<h2>${t("しくみ")}</h2><div class="how" style="display:grid;gap:16px">${HOW.map(([h, b]) => `<div><h4>${t(h)}</h4><p>${t(b, {w: Rules.R.writeDays, j: Rules.R.judgeDays})}</p></div>`).join("")}</div>`;
 let histN = 50;
 const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した", flag: "知らせた", link: "つないだ", answer: "つなぎに返事", made: "できた", confirm: "確かに", share: "中身を渡した", reveal: "公開した", "open-review": "レビューを公開", gift: "券を贈った"};
 function meHtml() {
   const all = S.log.filter(l => l.pk === me.pk).reverse(), list = all.slice(0, histN), u = mine();
-  return `<h2>記録とかぎ</h2>
-    <div class="job"><span>見てあげた ${u.gave || 0}・役に立った ${u.helped || 0}・見てもらった ${u.got || 0}</span>${u.judged ? `<span class="small">役に立ったを返した割合 ${Math.round(100 * u.judgedOk / u.judged)}%</span>` : ""}</div>
-    <div class="job"><b>かぎ</b><span class="small">記録も非公開の中身も、このかぎで開きます。書き写して保管してください。人に見せると、なりすまされます。</span>
-      <details ontoggle="if(this.open){try{localStorage.setItem('sougo.backed','1')}catch(e){}}"><summary class="small" style="cursor:pointer">表示する</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
-      <input id="imp" placeholder="別の端末のかぎ（64文字）" aria-label="別の端末のかぎ" autocomplete="off"><button type="button" data-act="import">このかぎで続ける</button></div>
-    <div><h3 style="margin-top:0">あなたの出来事（${all.length}）</h3>${list.length ? list.map(l => { const q = l.req && S.reqs[l.req];
-        return `<div class="hist" ${q ? `data-act="${q.by === me.pk ? "mine" : "view"}" data-id="${q.id}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span>${T[l.t] || esc(l.t)}${l.ok ? "" : "（無効）"}${q ? `<br><span class="small">${esc(titleOf(q).slice(0, 24))}</span>` : ""}</span><span class="small" style="white-space:nowrap">${new Date(l.at * 1000).toLocaleString("ja-JP", {dateStyle: "short", timeStyle: "short"})}</span></div>`; }).join("") : `<p class="empty">まだありません</p>`}
-      ${all.length > histN ? `<button type="button" class="link" data-act="more">もっと前（${all.length - histN}）</button>` : ""}</div>
-    <div class="job"><b>番号</b><span class="small">紹介してくれる人に伝えると、券を贈ってもらえます。見せても大丈夫です。</span><p class="mono" style="margin:0" id="my-pk">${me.pk}</p><button type="button" data-act="copy-pk">番号を写す</button></div>
-    ${(u.helped || 0) >= 1 ? `<div class="job"><b>券を贈る</b><input id="g-to" placeholder="相手の番号（64文字）" aria-label="相手の番号" autocomplete="off"><p class="small" id="g-msg" style="margin:0;color:var(--warm)" role="alert"></p><button type="button" data-act="gift" ${u.tickets >= 1 ? "" : "disabled"}>贈る（券1枚）</button></div>` : ""}`;
+  return `<h2>${t("記録とかぎ")}</h2>
+    <div class="job"><span>${t("見てあげた {g}・役に立った {h}・見てもらった {r}", {g: u.gave || 0, h: u.helped || 0, r: u.got || 0})}</span>${u.judged ? `<span class="small">${t("役に立ったを返した割合 {n}%", {n: Math.round(100 * u.judgedOk / u.judged)})}</span>` : ""}</div>
+    <div class="job"><b>${t("かぎ")}</b><span class="small">${t("記録も非公開の中身も、このかぎで開きます。書き写して保管してください。人に見せると、なりすまされます。")}</span>
+      <details ontoggle="if(this.open){try{localStorage.setItem('sougo.backed','1')}catch(e){}}"><summary class="small" style="cursor:pointer">${t("表示する")}</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
+      <input id="imp" placeholder="${t("別の端末のかぎ（64文字）")}" aria-label="${t("別の端末のかぎ")}" autocomplete="off"><button type="button" data-act="import">${t("このかぎで続ける")}</button></div>
+    <div><h3 style="margin-top:0">${t("あなたの出来事（{n}）", {n: all.length})}</h3>${list.length ? list.map(l => { const q = l.req && S.reqs[l.req];
+        return `<div class="hist" ${q ? `data-act="${q.by === me.pk ? "mine" : "view"}" data-id="${q.id}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span>${T[l.t] ? t(T[l.t]) : esc(l.t)}${l.ok ? "" : t("（無効）")}${q ? `<br><span class="small">${esc(titleOf(q).slice(0, 24))}</span>` : ""}</span><span class="small" style="white-space:nowrap">${new Date(l.at * 1000).toLocaleString(LANG === "ja" ? "ja-JP" : "en-US", {dateStyle: "short", timeStyle: "short"})}</span></div>`; }).join("") : `<p class="empty">${t("まだありません")}</p>`}
+      ${all.length > histN ? `<button type="button" class="link" data-act="more">${t("もっと前（{n}）", {n: all.length - histN})}</button>` : ""}</div>
+    <div class="job"><b>${t("番号")}</b><span class="small">${t("紹介してくれる人に伝えると、券を贈ってもらえます。見せても大丈夫です。")}</span><p class="mono" style="margin:0" id="my-pk">${me.pk}</p><button type="button" data-act="copy-pk">${t("番号を写す")}</button></div>
+    ${(u.helped || 0) >= 1 ? `<div class="job"><b>${t("券を贈る")}</b><input id="g-to" placeholder="${t("相手の番号（64文字）")}" aria-label="${t("相手の番号")}" autocomplete="off"><p class="small" id="g-msg" style="margin:0;color:var(--warm)" role="alert"></p><button type="button" data-act="gift" ${u.tickets >= 1 ? "" : "disabled"}>${t("贈る（券1枚）")}</button></div>` : ""}`;
 }
 
 // 横に払うと戻る（左右どちらでも）
 (() => {
   const p = $("#panel"); let x0 = 0, y0 = 0, dx = 0, track = null;
-  p.addEventListener("touchstart", e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; track = null; }, {passive: true});
-  p.addEventListener("touchmove", e => { const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+  p.addEventListener("touchstart", e => { const tc = e.touches[0]; x0 = tc.clientX; y0 = tc.clientY; dx = 0; track = null; }, {passive: true});
+  p.addEventListener("touchmove", e => { const tc = e.touches[0], mx = tc.clientX - x0, my = tc.clientY - y0;
     if (track === null && (Math.abs(mx) > 10 || Math.abs(my) > 10)) track = Math.abs(mx) > Math.abs(my) * 1.4;
     if (!track) return; dx = mx; p.style.transition = "none"; p.style.transform = `translateX(${dx}px)`; }, {passive: true});
   p.addEventListener("touchend", () => { if (!track) return; p.style.transition = "";
@@ -554,7 +574,7 @@ async function act(a, id) {
   if (a === "more") { const b = $(".panel .body"), y = b.scrollTop; histN += 100; $("#pbody").innerHTML = meHtml(); b.scrollTop = y; return; }
   if (a === "view" && r) return openPanel("view", id, viewHtml(r));
   if ((a === "watch" || a === "unwatch") && r) { setWatch(id, a === "watch"); live(); return openPanel("view", id, viewHtml(r)); }
-  if (a === "watch-next" && r) { setWatch(id, true); skip(id); note = {m: "保留しました"}; render(); return openPanel("give", null, giveHtml()); }
+  if (a === "watch-next" && r) { setWatch(id, true); skip(id); note = {m: t("保留しました")}; render(); return openPanel("give", null, giveHtml()); }
   if (a === "ask") return openPanel("ask", null, askHtml());
   if (a === "give") return openPanel("give", null, giveHtml());
   if (a === "write" && r) return openPanel("write", id, writeHtml(r));
@@ -564,52 +584,52 @@ async function act(a, id) {
   if (a === "skip") { skip(id); return openPanel("give", null, giveHtml()); }
   if (a === "send-ask") {
     const link = $("#a-link").value.trim(), ask = $("#a-ask").value.trim(), hint = $("#a-hint").value.trim();
-    if (!/^https:\/\/\S+$/.test(link)) return bad("#a-link", "リンクは https:// から");
-    if (!pick.genres.length) { $("#a-msg").textContent = "見てほしい所を選んでください"; return; }
-    if (!ask) return bad("#a-ask", "見てほしい点を書いてください");
-    if (pick.priv && !hint) return bad("#a-hint", "みんなに見せるひとことを書いてください");
+    if (!/^https:\/\/\S+$/.test(link)) return bad("#a-link", t("リンクは https:// から"));
+    if (!pick.genres.length) { $("#a-msg").textContent = t("見てほしい所を選んでください"); return; }
+    if (!ask) return bad("#a-ask", t("見てほしい点を書いてください"));
+    if (pick.priv && !hint) return bad("#a-hint", t("みんなに見せるひとことを書いてください"));
     const base = {genres: pick.genres, want: pick.want, aiName: pick.want === "ai" ? ($("#a-ai").value || "").trim() : ""};
     const ev = await emit(pick.priv ? {...await sealedAsk(me.sk, {link, ask, hint, ...base})} : {t: "ask", link, ask, ...base});
-    closePanel(); note = accepted(ev) ? {m: "依頼を出しました"} : {k: "warn", m: "出せませんでした（券がありません）"}; return render();
+    closePanel(); note = accepted(ev) ? {m: t("依頼を出しました")} : {k: "warn", m: t("出せませんでした（券がありません）")}; return render();
   }
   if (a === "take" && r) { await emit({t: "take", req: id}); const rr = S.reqs[id];
-    if (rr.taker !== me.pk) { note = {k: "warn", m: "いまは引き受けられません（先に引き受けた人がいるか、同時に持てる数を超えています）"}; render(); return openPanel("give", null, giveHtml()); }
+    if (rr.taker !== me.pk) { note = {k: "warn", m: t("いまは引き受けられません（先に引き受けた人がいるか、同時に持てる数を超えています）")}; render(); return openPanel("give", null, giveHtml()); }
     render(); return openPanel("write", id, writeHtml(rr)); }
-  if (a === "release" && r) { await emit({t: "release", req: id}); closePanel(); note = {m: "手放しました"}; return render(); }
+  if (a === "release" && r) { await emit({t: "release", req: id}); closePanel(); note = {m: t("手放しました")}; return render(); }
   if (a === "send-give" && r) {
     const body = {}; let filled = 0;
     $$("#pbody [data-field]").forEach(el => { body[el.dataset.field] = el.value.trim(); if (el.value.trim()) filled++; });
-    if (filled < 2) { $("#w-msg").textContent = "2つ以上の欄を書いてください"; const t = $$("#pbody [data-field]").find(x => !x.value.trim()); t && t.focus(); return; }
+    if (filled < 2) { $("#w-msg").textContent = t("2つ以上の欄を書いてください"); const x = $$("#pbody [data-field]").find(y => !y.value.trim()); x && x.focus(); return; }
     const used = ($("#w-used").value || "").trim();
     const ev = await emit(r.private ? await sealedGive(me.sk, r, body, used) : {t: "give", req: id, used, body});
-    if (!accepted(ev)) { $("#w-msg").textContent = "届けられませんでした（期限が過ぎたか、ほかの人に移りました）"; return; }
-    closePanel(); note = {m: "届けました"}; return render();
+    if (!accepted(ev)) { $("#w-msg").textContent = t("届けられませんでした（期限が過ぎたか、ほかの人に移りました）"); return; }
+    closePanel(); note = {m: t("届けました")}; return render();
   }
-  if ((a === "judge-ok" || a === "judge-no") && r) { await emit({t: "judge", req: id, ok: a === "judge-ok"}); closePanel(); note = {m: "返事をしました"}; return render(); }
-  if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: "取り下げました。券が戻りました"}; return render(); }
-  if (a === "reveal" && r) { await emit({t: "reveal", req: id, key: Seal.hex(await Seal.contentKey(me.sk, r.n))}); note = {m: "公開しました"}; render(); return openPanel("mine", id, mineHtml(S.reqs[id])); }
+  if ((a === "judge-ok" || a === "judge-no") && r) { await emit({t: "judge", req: id, ok: a === "judge-ok"}); closePanel(); note = {m: t("返事をしました")}; return render(); }
+  if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: t("取り下げました。券が戻りました")}; return render(); }
+  if (a === "reveal" && r) { await emit({t: "reveal", req: id, key: Seal.hex(await Seal.contentKey(me.sk, r.n))}); note = {m: t("公開しました")}; render(); return openPanel("mine", id, mineHtml(S.reqs[id])); }
   if (a === "open-review" && r) { const k = await reviewKey(r, me.sk, me.pk); if (k) await emit({t: "open-review", req: id, key: Seal.hex(k)}); render(); return openPanel("view", id, viewHtml(S.reqs[id])); }
   if (a === "keep-review" && r) { store.set("sougo.keepPriv", [...store.get("sougo.keepPriv", []), id]); closePanel(); return render(); }
   const L = id && S.links[id], C = id && S.circles[id];
   if (a === "linkfrom" && r) { linkPick = null; return openPanel("link", id, linkHtml(r)); }
   if (a === "pick") { linkPick = id; const why = $("#l-why").value; $("#pbody").innerHTML = linkHtml(S.reqs[openId]); $("#l-why").value = why; return; }
-  if (a === "send-link") { if (!linkPick) { $("#l-msg").textContent = "つなぐ相手を選んでください"; return; }
+  if (a === "send-link") { if (!linkPick) { $("#l-msg").textContent = t("つなぐ相手を選んでください"); return; }
     const ev = await emit({t: "link", a: id, b: linkPick, why: ($("#l-why").value || "").trim()}); closePanel();
-    note = accepted(ev) ? {m: "提案しました"} : {k: "warn", m: "この2つはつなげません（すでにつないだ2人か、決まりに合いません）"}; return render(); }
+    note = accepted(ev) ? {m: t("提案しました")} : {k: "warn", m: t("この2つはつなげません（すでにつないだ2人か、決まりに合いません）")}; return render(); }
   if (a === "answer" && L) return openPanel("answer", id, answerHtml(L));
-  if ((a === "answer-ok" || a === "answer-no") && L) { await emit({t: "answer", link: id, ok: a === "answer-ok"}); closePanel(); note = {m: a === "answer-ok" ? "受けました" : "断りました"}; return render(); }
+  if ((a === "answer-ok" || a === "answer-no") && L) { await emit({t: "answer", link: id, ok: a === "answer-ok"}); closePanel(); note = {m: t(a === "answer-ok" ? "受けました" : "断りました")}; return render(); }
   if (a === "circle" && C) return openPanel("circle", id, circleHtml(C));
   if (a === "made" && C) { const url = $("#m-url").value.trim(); if (!/^https:\/\/\S+$/.test(url)) { $("#m-url").style.borderColor = "var(--warm)"; return $("#m-url").focus(); }
     await emit({t: "made", circle: id, url, what: ($("#m-what").value || "").trim()}); render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
-  if (a === "confirm" && C) { await emit({t: "confirm", circle: id}); note = {m: "完結しました"}; render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
-  if (a === "flag-ask" && r) { await emit({t: "flag", what: "ask", req: id}); skip(id); note = {m: r.taker === me.pk ? "知らせて、手放しました" : "知らせました"}; render(); return openPanel("give", null, giveHtml()); }
-  if (a === "flag-review" && r) { await emit({t: "flag", what: "review", req: id}); closePanel(); note = {m: "知らせました。このレビューには券が入りません"}; return render(); }
-  if (a === "copy-pk") { try { await navigator.clipboard.writeText(me.pk); } catch (e) { const r0 = document.createRange(); r0.selectNodeContents($("#my-pk")); getSelection().removeAllRanges(); getSelection().addRange(r0); } note = {m: "番号を写しました"}; $("#note") && ($("#note").innerHTML = noteHtml()); return; }
+  if (a === "confirm" && C) { await emit({t: "confirm", circle: id}); note = {m: t("完結しました")}; render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
+  if (a === "flag-ask" && r) { await emit({t: "flag", what: "ask", req: id}); skip(id); note = {m: t(r.taker === me.pk ? "知らせて、手放しました" : "知らせました")}; render(); return openPanel("give", null, giveHtml()); }
+  if (a === "flag-review" && r) { await emit({t: "flag", what: "review", req: id}); closePanel(); note = {m: t("知らせました。このレビューには券が入りません")}; return render(); }
+  if (a === "copy-pk") { try { await navigator.clipboard.writeText(me.pk); } catch (e) { const r0 = document.createRange(); r0.selectNodeContents($("#my-pk")); getSelection().removeAllRanges(); getSelection().addRange(r0); } note = {m: t("番号を写しました")}; $("#note") && ($("#note").innerHTML = noteHtml()); return; }
   if (a === "gift") {
     const to = ($("#g-to").value || "").trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(to) || to === me.pk) { $("#g-msg").textContent = "相手の番号（64文字）を入れてください"; return $("#g-to").focus(); }
-    if ($("#g-to").dataset.ok !== to) { $("#g-to").dataset.ok = to; $("#g-msg").textContent = `${S.users[to] ? nameOf(to) : "まだ始めていない人"}に贈ります。もう一度押すと贈ります。`; return; }
-    const ev = await emit({t: "gift", to}); closePanel(); note = accepted(ev) ? {m: "券を1枚贈りました"} : {k: "warn", m: "贈れませんでした"}; return render();
+    if (!/^[0-9a-f]{64}$/.test(to) || to === me.pk) { $("#g-msg").textContent = t("相手の番号（64文字）を入れてください"); return $("#g-to").focus(); }
+    if ($("#g-to").dataset.ok !== to) { $("#g-to").dataset.ok = to; $("#g-msg").textContent = t("{n}に贈ります。もう一度押すと贈ります。", {n: S.users[to] ? nameOf(to) : t("まだ始めていない人")}); return; }
+    const ev = await emit({t: "gift", to}); closePanel(); note = accepted(ev) ? {m: t("券を1枚贈りました")} : {k: "warn", m: t("贈れませんでした")}; return render();
   }
   if (a === "import") {
     const k = ($("#imp").value || "").trim().toLowerCase(); let pk = null;

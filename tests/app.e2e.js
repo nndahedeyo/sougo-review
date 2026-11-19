@@ -4,7 +4,7 @@ const path = require("path");
 const W = parseInt(process.argv[2] || "400");
 (async () => {
   const b = await chromium.launch(); const errs = [], log = [];
-  const p = await (await b.newContext({viewport: {width: W, height: 860}})).newPage();
+  const p = await (await b.newContext({viewport: {width: W, height: 860}, locale: "ja-JP"})).newPage();
   p.on("pageerror", e => errs.push(e.message));
   const check = (l, c) => { if (!c) process.exitCode = 1; log.push((c ? "OK  " : "NG  ") + l); };
   const until = (fn, arg, ms = 15000) => p.waitForFunction(fn, arg, {timeout: ms}).then(() => true, () => false);

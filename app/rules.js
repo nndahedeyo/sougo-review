@@ -30,7 +30,8 @@
   const gen = id => GENRES.find(g => g.id === id);
   const genresOf = c => { const a = Array.isArray(c.genres) ? c.genres : [c.genre]; return GENRES.map(g => g.id).filter(id => a.includes(id)); };
   const minutes = gs => gs.length ? Math.max(...gs.map(id => gen(id).min)) + 10 * (gs.length - 1) : 0;
-  const fields = gs => ["見た環境・範囲", ...gs.map(id => `${gen(id).name}で気になった所`), "よかった所", "直すとよい所"];
+  // レビューの欄は言語によらない記号で残す（env：見た環境・範囲、g:種類：その所で気になった所、good：よかった所、fix：直すとよい所）
+  const fields = gs => ["env", ...gs.map(id => `g:${id}`), "good", "fix"];
   const isHex = (s, n) => typeof s === "string" && new RegExp(`^[0-9a-f]{${n}}$`).test(s);
   const isSealed = s => typeof s === "string" && s.length < 6000 && /^1:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(s);
 

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 R = Path(__file__).resolve().parent.parent
 a = (R / "app/app.html").read_text(encoding="utf-8")
-body = a.replace("/*__SIG__*/", (R / "app/sig.js").read_text(encoding="utf-8")).replace("/*__SEAL__*/", (R / "app/seal.js").read_text(encoding="utf-8")).replace("/*__RULES__*/", (R / "app/rules.js").read_text(encoding="utf-8"))
+body = a.replace("/*__SIG__*/", (R / "app/sig.js").read_text(encoding="utf-8")).replace("/*__EN__*/", (R / "app/en.js").read_text(encoding="utf-8")).replace("/*__SEAL__*/", (R / "app/seal.js").read_text(encoding="utf-8")).replace("/*__RULES__*/", (R / "app/rules.js").read_text(encoding="utf-8"))
 head, rest = body.split("<style>", 1); style, main = rest.split("</style>", 1)
 (R / "index.html").write_text('<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
     '<meta name="description" content="個人開発のアプリや文章を、人もAIも対等に見せ合う場所。券1枚で見てもらい、見てあげると券が増える。">\n'
