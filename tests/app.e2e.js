@@ -121,6 +121,15 @@ const W = parseInt(process.argv[2] || "400");
   check("自分の記録が見える", (await text("#pbody")).includes("見てあげた 2") || (await text("#pbody")).includes("見てあげた 1"));
   check("自分の出来事を件数つきでさかのぼれ、依頼を開ける", (await text("#pbody")).includes("あなたの出来事（") && !!(await p.$("#pbody .hist[data-act]")));
   await back();
+  // ---- 紹介：券を贈る ----
+  const to = await p.evaluate(() => Object.keys(__sr.S.users).find(k => k !== __sr.me.pk));
+  const before = await myTix(), theirs = await p.evaluate(k => __sr.S.users[k].tickets, to);
+  await p.click("[data-act=me]"); await p.waitForTimeout(300);
+  check("番号と、券を贈る欄がある", !!(await p.$("#my-pk")) && !!(await p.$("#g-to")));
+  await p.fill("#g-to", to); await p.click("[data-act=gift]");
+  check("贈る前に、相手の名前でもう一度確かめる", (await text("#g-msg")).includes("もう一度押す"));
+  await p.click("[data-act=gift]"); await p.waitForTimeout(300);
+  check("券が1枚、相手に移る", (await myTix()) === before - 1 && (await p.evaluate(k => __sr.S.users[k].tickets, to)) === theirs + 1);
   check("横にはみ出さない", !(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));
   if (process.env.SHOT) { await p.screenshot({path: process.env.SHOT.replace(".png", "-top.png")}); await p.click("[data-act=ask]"); await p.waitForTimeout(350); await p.click('[data-chip=priv][data-v=priv]'); await p.screenshot({path: process.env.SHOT.replace(".png", "-ask.png")}); await back(); await p.click("[data-act=give]"); await p.waitForTimeout(350); await p.screenshot({path: process.env.SHOT.replace(".png", "-give.png")}); await back(); }
   check("閉じた中身の危ないリンク（https以外）は出さない", await p.evaluate(() => __sr.cleanAsk({link: "javascript:alert(1)", ask: "x"}).link === "" && __sr.cleanAsk({link: "https://a.example/b", ask: "x"}).link === "https://a.example/b"));

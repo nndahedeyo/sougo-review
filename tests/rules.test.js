@@ -192,3 +192,37 @@ test("非公開の危ない依頼：かぎを受け取った実績のある人�
   e.push(ev("N", 27, {t: "take", req: a.id}), ev("A", 28, {t: "share", req: a.id, to: "N", key: sealed}), ev("N", 29, {t: "flag", what: "ask", req: a.id}));
   S = reduce(e, 30); assert.equal(S.reqs[a.id].status, "hidden"); assert.equal(S.users.A.flaggedAsks, 1);
 });
+// ---------- 最初の券・紹介・借り ----------
+const END = require("../app/rules.js").R.starterUntil;
+const P = c => c.repeat(64);
+test("最初の券は期限までに始めた人だけ。期限のあとに始めた人は0枚から", () => {
+  const S = reduce([ev("A", END - 10, {t: "hello", name: "a"}), ev("B", END + 10, {t: "hello", name: "b"})], END + 20);
+  assert.equal(S.users.A.tickets, 1); assert.equal(S.users.A.starter, true);
+  assert.equal(S.users.B.tickets, 0); assert.equal(S.users.B.starter, false);
+  assert.equal(Object.keys(reduce([ev("B", END + 10, {t: "hello"}), ask("B", END + 11)], END + 20).reqs).length, 0);
+});
+test("紹介：実績のある人が券を1枚贈れる。自分には贈れない。実績も券もないと贈れない", () => {
+  const e = []; helpedUser(e, P("a"), 1);
+  e.push(ev(P("a"), END + 50, {t: "gift", to: P("c")}), ev(P("a"), END + 51, {t: "gift", to: P("a")}), ev(P("n"), END + 52, {t: "gift", to: P("c")}));
+  e.push(ev(P("c"), END + 60, {t: "hello", name: "c"}));
+  const S = reduce(e, END + 70);
+  assert.equal(S.users[P("a")].tickets, 1); assert.equal(S.users[P("a")].gifted, 1);   // 最初の1枚＋役に立った1枚−贈った1枚
+  assert.equal(S.users[P("c")].tickets, 1); assert.equal(S.users[P("c")].gotGift, 1);
+  assert.equal(S.users[P("n")].gifted, 0);
+  const q = ask(P("c"), END + 80); assert.equal(reduce([...e, q], END + 90).reqs[q.id].by, P("c"));   // 贈られた券で依頼できる
+});
+test("保険の借り：ふだんは使えない。有効なら、待っている依頼がないときだけ1件借りて出せ、次の券で返る", () => {
+  const R = require("../app/rules.js").R;
+  const b = ask("B", END + 2), e = [ev("B", END + 1, {t: "hello"}), b];
+  assert.equal(Object.keys(reduce(e, END + 3).reqs).length, 0);
+  R.borrow = true;
+  try {
+    let S = reduce(e, END + 3); assert.equal(S.users.B.tickets, -1);
+    const c = ask("C", END + 5); e.push(ev("C", END + 4, {t: "hello"}), c);   // B の依頼が待っているので C は借りられない
+    S = reduce(e, END + 6); assert.equal(S.reqs[c.id], undefined);
+    const d = ask("B", END + 7); e.push(d); S = reduce(e, END + 8); assert.equal(S.reqs[d.id], undefined);   // 借りは1件まで
+    // B がだれかを見て「役に立った」をもらうと、借りが返って0枚になる
+    const a = ask("A", END + 8); e.push(ev("A", 10, {t: "hello"}), a, ev("B", END + 9, {t: "take", req: a.id}), ev("B", END + 10, {t: "give", req: a.id, body}), ev("A", END + 11, {t: "judge", req: a.id, ok: true}));
+    S = reduce(e, END + 12); assert.equal(S.users.B.tickets, 0);
+  } finally { R.borrow = false; }
+});

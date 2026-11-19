@@ -12,7 +12,12 @@
     futureSkew: 600,   // 未来の時刻の出来事は、この秒数より先なら無視する
     linkDays: 14,      // つなぎの提案に返事がなければ、この日数で消える
     hideFlags: 2,      // 「危ない」がこの人数（見てあげた実績のある人）から付いた依頼は、だれの画面からも消える
+    starterUntil: 1798729200,   // 最初の券を配るのは、この時刻（2027-01-01 00:00 日本時間）までに始めた人だけ。以後は見てあげるか、贈ってもらって始める
+    borrow: false,     // 保険：券が足りなくなったときだけ有効にする。待っている依頼が1件もないとき、券のない人が1件だけ借りて出せる
   };
+  // 期限のあとに、期限までに始めた人の一覧（ビットコインに刻んだ記録から作る）を固めて入れる。null のあいだは時刻で判断する
+  // （時刻は出した人の端末の時計なので、期限のあとは、さかのぼった時刻で最初の券を取るのをこの一覧で防ぐ）
+  const STARTERS = null;
   // いまは個人開発のアプリとホームページに絞る。種類を広げるときは、ここに1行足す。見てほしい所は複数選べる
   const GENRES = [
     {id: "use", name: "使い心地", min: 30},
@@ -34,9 +39,11 @@
     const evs = events.filter(e => e.created_at <= now + R.futureSkew).slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
     const S = {users: {}, reqs: {}, links: {}, circles: {}, log: []};
     const pairs = new Set();    // 一度つながった持ち主どうし（同じ2人は1回だけ）
-    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: R.start, gave: 0, helped: 0, got: 0, judged: 0, judgedOk: 0, flaggedAsks: 0, flaggedReviews: 0, linked: 0, lastReviewed: null, joined: null});
+    const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: 0, starter: false, gifted: 0, gotGift: 0, gave: 0, helped: 0, got: 0, judged: 0, judgedOk: 0, flaggedAsks: 0, flaggedReviews: 0, linked: 0, lastReviewed: null, joined: null});
     const holding = pk => Object.values(S.reqs).filter(r => r.status === "taken" && r.taker === pk).length;
     const live = r => r && !["cancelled", "hidden"].includes(r.status);
+    // 保険の借り：有効なときだけ。券が1枚未満で借りがなく、待っている依頼がどこにもないとき。券は負になり、次にもらう券で返る
+    const canBorrow = u => R.borrow && u.tickets >= 0 && u.tickets < 1 && !Object.values(S.reqs).some(r => r.status === "open");
     const circleOf = id => Object.values(S.circles).find(c => c.reqs.includes(id));
     function tick(t) {   // 時間で決まる移り変わり
       for (const l of Object.values(S.links)) if (l.status === "pending" && t > l.at + R.linkDays * DAY) l.status = "expired";
@@ -60,11 +67,14 @@
       let c; try { c = JSON.parse(e.content); } catch (x) { continue; }
       if (!c || typeof c !== "object") continue;
       tick(e.created_at);
-      const u = U(e.pubkey); if (!u.joined) u.joined = e.created_at;
+      const u = U(e.pubkey);
+      if (!u.joined) { u.joined = e.created_at; if (e.created_at <= R.starterUntil && (!STARTERS || STARTERS.includes(e.pubkey))) { u.starter = true; u.tickets += R.start; } }
       const r = c.req && S.reqs[c.req];
       let ok = false;
       if (c.t === "hello" && typeof c.name === "string") { u.name = c.name.slice(0, 24); ok = true; }
-      else if (c.t === "ask" && u.tickets >= 1 && genresOf(c).length && (c.private === true
+      // 紹介：「役に立った」をもらったことのある人が、自分の券を1枚、ほかの人に贈る（券は増えない）
+      else if (c.t === "gift" && isHex(c.to, 64) && c.to !== e.pubkey && u.helped >= 1 && u.tickets >= 1) { u.tickets--; u.gifted++; const v = U(c.to); v.tickets++; v.gotGift++; ok = true; }
+      else if (c.t === "ask" && (u.tickets >= 1 || canBorrow(u)) && genresOf(c).length && (c.private === true
                  ? isSealed(c.sealed) && isHex(c.n, 32) && String(c.hint || "").trim()
                  : /^https:\/\/\S+$/.test(c.link || "") && String(c.ask || "").trim())) {
         u.tickets--;
@@ -167,6 +177,6 @@
 
   // pk がレビューを届けたことのある依頼か（つなぐの条件）
   const seen = (r, pk) => !!r && r.taker === pk && ["given", "done"].includes(r.status);
-  const api = {seen, reduce, contributions, R, GENRES, WANTS, gen, genresOf, minutes, fields, DAY};
+  const api = {STARTERS, seen, reduce, contributions, R, GENRES, WANTS, gen, genresOf, minutes, fields, DAY};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Rules = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
