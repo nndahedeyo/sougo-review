@@ -136,11 +136,13 @@
         Object.assign(S.circles[c.circle], {status: "complete", confirmedBy: e.pubkey, doneAt: e.created_at}); ok = true;
       }
       // 危ない依頼（悪意のあるアプリへの誘導など）：「役に立った」をもらったことのある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
-      // 非公開の依頼は中身を見られるのが引き受けた人だけなので、かぎを受け取った人（実績のある人）1人の知らせで消える
+      // 非公開の依頼は中身を見られるのが引き受けた人だけなので、知らせられるのは、かぎを受け取った人（実績のある人）。
+      // 公開と同じく R.hideFlags 人そろって消える。知らせた人が引き受け中なら手放したことにして、ほかの人が確かめられるようにする
       else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.helped >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)
                && (!r.private || r.revealed || r.shares[e.pubkey])) {
         (r.flags = r.flags || []).push(e.pubkey); ok = true;
-        if (r.flags.length >= (r.private && !r.revealed ? 1 : R.hideFlags)) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
+        if (r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; }
+        if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
       }
       // 危ない・ひどいレビュー：依頼した人がつける。券も半券も入らず、書いた人に印が残る
       else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === e.pubkey) {

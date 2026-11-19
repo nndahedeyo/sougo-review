@@ -183,10 +183,12 @@ test("非公開：公開は持ち主だけ。レビューの公開は、依頼�
   S = reduce(e, 9); assert.equal(S.reqs[a.id].openKey, K); assert.equal(S.reqs[a.id].reviewKey, undefined);
   e.push(ev("B", 10, {t: "open-review", req: a.id, key: K})); S = reduce(e, 11); assert.equal(S.reqs[a.id].reviewKey, K);
 });
-test("非公開の危ない依頼：かぎを受け取った実績のある人1人で消える。中身を見ていない人は知らせられない", () => {
-  const e = []; helpedUser(e, "L", 1); helpedUser(e, "M", 5);
-  const a = pask("A", 10); e.push(a, ev("M", 11, {t: "flag", what: "ask", req: a.id}));
-  let S = reduce(e, 12); assert.equal(S.reqs[a.id].status, "open");
-  e.push(ev("L", 13, {t: "take", req: a.id}), ev("A", 14, {t: "share", req: a.id, to: "L", key: sealed}), ev("L", 15, {t: "flag", what: "ask", req: a.id}));
-  S = reduce(e, 16); assert.equal(S.reqs[a.id].status, "hidden"); assert.equal(S.users.A.flaggedAsks, 1);
+test("非公開の危ない依頼：かぎを受け取った実績のある人が2人そろうと消える。中身を見ていない人は知らせられない。知らせた人は手放したことになる", () => {
+  const e = []; helpedUser(e, "L", 1); helpedUser(e, "M", 5); helpedUser(e, "N", 9);
+  const a = pask("A", 20); e.push(a, ev("M", 21, {t: "flag", what: "ask", req: a.id}));
+  let S = reduce(e, 22); assert.equal(S.reqs[a.id].status, "open"); assert.equal(S.reqs[a.id].flags, undefined);
+  e.push(ev("L", 23, {t: "take", req: a.id}), ev("A", 24, {t: "share", req: a.id, to: "L", key: sealed}), ev("L", 25, {t: "flag", what: "ask", req: a.id}));
+  S = reduce(e, 26); assert.equal(S.reqs[a.id].status, "open"); assert.equal(S.reqs[a.id].taker, null);   // 1人目：消えずに手放される
+  e.push(ev("N", 27, {t: "take", req: a.id}), ev("A", 28, {t: "share", req: a.id, to: "N", key: sealed}), ev("N", 29, {t: "flag", what: "ask", req: a.id}));
+  S = reduce(e, 30); assert.equal(S.reqs[a.id].status, "hidden"); assert.equal(S.users.A.flaggedAsks, 1);
 });
