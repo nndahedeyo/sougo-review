@@ -257,8 +257,8 @@ async function seedDemo() {
   }
 }
 const DEMO_TEXT = LANG === "ja"
-  ? {env: "iPhone 15 / Safari で確かめました。", "g:use": "最初のボタンの意味が分からず、少し止まりました。", "g:code": "通信が切れたときの再試行がありません。", "g:text": "専門用語が3つ、説明なしで出てきます。", "g:look": "文字が小さく、灰色が背景に溶けて読みにくい所があります。", good: "色と文字の大きさが見やすいです。", fix: "最初の画面に一言の説明があると迷いません。"}
-  : {env: "Checked on iPhone 15 / Safari.", "g:use": "I paused at the first button; its meaning was unclear.", "g:code": "There is no retry when the connection drops.", "g:text": "Three technical terms appear without explanation.", "g:look": "Some gray text blends into the background and is hard to read.", good: "Colors and text size are easy to read.", fix: "A one-line hint on the first screen would help."};
+  ? {env: "iPhone 15 / Safari で確かめました。", "g:use": "最初のボタンの意味が分からず、少し止まりました。", "g:code": "通信が切れたときの再試行がありません。", "g:text": "専門用語が3つ、説明なしで出てきます。", "g:look": "文字が小さく、灰色が背景に溶けて読みにくい所があります。", "g:play": "ステージ1の後半で急に難しくなり、3回やり直しました。", good: "色と文字の大きさが見やすいです。", fix: "最初の画面に一言の説明があると迷いません。"}
+  : {env: "Checked on iPhone 15 / Safari.", "g:use": "I paused at the first button; its meaning was unclear.", "g:code": "There is no retry when the connection drops.", "g:text": "Three technical terms appear without explanation.", "g:look": "Some gray text blends into the background and is hard to read.", "g:play": "Stage 1 suddenly gets hard near the end; I retried three times.", good: "Colors and text size are easy to read.", fix: "A one-line hint on the first screen would help."};
 const demoBody = gs => { const b = {}; for (const f of Rules.fields(gs)) b[f] = DEMO_TEXT[f] || DEMO_TEXT["g:use"]; return b; };
 function demoReact(c, ev) {
   const keys = store.get("sougo.demokeys", []), pkOf = j => Sig.hex(Sig.pubkey(Sig.unhex(keys[j])));
