@@ -144,19 +144,21 @@ var EN = {
 
   // 返事
   "届いたレビュー": "Your review",
-  "相手に半券": "half ticket for them",
+  "相手とあなたに半券": "half ticket each",
   "相手に券1枚": "1 ticket for them",
   "危ない・ひどいレビュー": "Unsafe or abusive review",
   "返事をしました": "Answered",
   "知らせました": "Reported",
   "知らせて、手放しました": "Reported and let go",
-  "知らせました。このレビューには券が入りません": "Reported. This review earns no ticket",
+  "知らせました。書いた人に券は入らず、あなたに半券が戻りました": "Reported. The writer gets nothing; you got a half ticket back",
 
   // あなたの依頼
   "見てくれている人": "Reviewing",
   "見てくれた人": "Reviewed by",
   "レビューは、書いた人が許すと公開されます。": "The review becomes public only if its writer allows it.",
   "取り下げる（券が戻る）": "Withdraw (ticket returned)",
+  "取り下げる（集まりに入っているので券は戻らない）": "Withdraw (in a circle, so no ticket back)",
+  "取り下げました": "Withdrawn",
   "公開する": "Make public",
   "公開すると、中身をだれでも読めるようになります。元には戻せません。": "Anyone will be able to read the content. This can't be undone.",
   "取り下げました。券が戻りました": "Withdrawn. Your ticket is back",
@@ -201,7 +203,7 @@ var EN = {
   "完結しました": "Complete",
 
   // しくみ
-  "見てもらうときに1枚使います。見てあげて「役に立った」と言われると1枚、「いまひとつ」なら半券（2枚で1枚）。": "Asking for a review costs 1 ticket. When your review is marked “Helpful” you get 1 ticket; “Not quite” gives a half ticket (two make one).",
+  "見てもらうときに1枚使います。「役に立った」なら書いた人に券1枚。「いまひとつ」なら書いた人と依頼した人に半券ずつ（2枚で1枚）。危ない・ひどいレビューなら、書いた人には何もなく、依頼した人に半券。": "Asking costs 1 ticket. “Helpful” gives the writer 1 ticket. “Not quite” gives the writer and the requester a half ticket each (two make one). An unsafe or abusive review gives the writer nothing and the requester a half ticket.",
   "始め方": "Getting started",
   "2026年のうちに始めた人には、最初の券が1枚あります。2027年からは、だれかを見てあげて券をもらうか、紹介してくれる人から券を贈ってもらって始めます。": "People who start in 2026 get 1 starter ticket. From 2027, you start by reviewing someone to earn a ticket, or by getting one from a person who invites you.",
   "紹介": "Invites",

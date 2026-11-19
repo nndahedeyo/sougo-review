@@ -343,6 +343,7 @@ function todo() {
   for (const C of myCircles()) if (C.status === "made" && C.madeBy !== me.pk) out.push(item("circle", C.id, t("「できた」が届きました"), C.what || shortLink(C.url), t("開く"), true));
   return out;
 }
+const inCircle = id => Object.values(S.circles).some(C => C.reqs.includes(id));
 function myCircles() { return Object.values(S.circles).filter(C => C.members.includes(me.pk)).sort((a, b) => b.at - a.at); }
 const CST = {active: "進んでいます", made: "確認待ち", complete: "完結"};
 const myAsks = () => Object.values(S.reqs).filter(r => r.by === me.pk && r.status !== "cancelled").sort((a, b) => b.at - a.at).slice(0, 6);
@@ -446,7 +447,7 @@ function writeHtml(r) {
 }
 function judgeHtml(r) {
   return `<h2>${t("届いたレビュー")}</h2><div class="job"><span class="small">${esc(titleOf(r))}</span>${reviewHtml(r)}</div>
-    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">${t("いまひとつ")}<small>${t("相手に半券")}</small></button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">${t("役に立った")}<small>${t("相手に券1枚")}</small></button></div>
+    <div class="two" style="margin-top:0"><button type="button" data-act="judge-no" data-id="${r.id}">${t("いまひとつ")}<small>${t("相手とあなたに半券")}</small></button><button type="button" class="primary" data-act="judge-ok" data-id="${r.id}">${t("役に立った")}<small>${t("相手に券1枚")}</small></button></div>
     <div class="row"><button type="button" class="link warm" data-act="flag-review" data-id="${r.id}">${t("危ない・ひどいレビュー")}</button></div>`;
 }
 function mineHtml(r) {
@@ -455,7 +456,7 @@ function mineHtml(r) {
     ${r.taker && r.status !== "open" ? `<p class="small" style="margin:0">${t(r.status === "taken" ? "見てくれている人" : "見てくれた人")}${LANG === "ja" ? "：" : ": "}${esc(nameOf(r.taker))}</p>` : ""}
     ${r.status === "done" ? `<div class="job">${reviewHtml(r)}</div>` : ""}
     ${r.private && r.revealed && r.sealedReview && !r.reviewKey ? `<p class="small" style="margin:0">${t("レビューは、書いた人が許すと公開されます。")}</p>` : ""}
-    ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">${t("取り下げる（券が戻る）")}</button>` : ""}
+    ${r.status === "open" ? `<button type="button" data-act="cancel" data-id="${r.id}">${t(inCircle(r.id) ? "取り下げる（集まりに入っているので券は戻らない）" : "取り下げる（券が戻る）")}</button>` : ""}
     ${priv && isLive(r) ? `<button type="button" data-act="reveal" data-id="${r.id}">${t("公開する")}</button><p class="small" style="margin:0">${t("公開すると、中身をだれでも読めるようになります。元には戻せません。")}</p>` : ""}`;
 }
 function viewHtml(r) {
@@ -509,7 +510,7 @@ function circleHtml(C) {
 
 /* ---------- しくみ・記録 ---------- */
 const HOW = [
-  ["券", "見てもらうときに1枚使います。見てあげて「役に立った」と言われると1枚、「いまひとつ」なら半券（2枚で1枚）。"],
+  ["券", "見てもらうときに1枚使います。「役に立った」なら書いた人に券1枚。「いまひとつ」なら書いた人と依頼した人に半券ずつ（2枚で1枚）。危ない・ひどいレビューなら、書いた人には何もなく、依頼した人に半券。"],
   ["始め方", "2026年のうちに始めた人には、最初の券が1枚あります。2027年からは、だれかを見てあげて券をもらうか、紹介してくれる人から券を贈ってもらって始めます。"],
   ["紹介", "「役に立った」をもらったことのある人は、自分の券を1枚、ほかの人に贈れます。相手の番号（「記録とかぎ」にあります）が要ります。"],
   ["見送りは自由", "こなせそうなものだけ引き受けます。見送っても何も減りません。"],
@@ -606,7 +607,7 @@ async function act(a, id) {
     closePanel(); note = {m: t("届けました")}; return render();
   }
   if ((a === "judge-ok" || a === "judge-no") && r) { await emit({t: "judge", req: id, ok: a === "judge-ok"}); closePanel(); note = {m: t("返事をしました")}; return render(); }
-  if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: t("取り下げました。券が戻りました")}; return render(); }
+  if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: t(inCircle(id) ? "取り下げました" : "取り下げました。券が戻りました")}; return render(); }
   if (a === "reveal" && r) { await emit({t: "reveal", req: id, key: Seal.hex(await Seal.contentKey(me.sk, r.n))}); note = {m: t("公開しました")}; render(); return openPanel("mine", id, mineHtml(S.reqs[id])); }
   if (a === "open-review" && r) { const k = await reviewKey(r, me.sk, me.pk); if (k) await emit({t: "open-review", req: id, key: Seal.hex(k)}); render(); return openPanel("view", id, viewHtml(S.reqs[id])); }
   if (a === "keep-review" && r) { store.set("sougo.keepPriv", [...store.get("sougo.keepPriv", []), id]); closePanel(); return render(); }
@@ -623,7 +624,7 @@ async function act(a, id) {
     await emit({t: "made", circle: id, url, what: ($("#m-what").value || "").trim()}); render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
   if (a === "confirm" && C) { await emit({t: "confirm", circle: id}); note = {m: t("完結しました")}; render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
   if (a === "flag-ask" && r) { await emit({t: "flag", what: "ask", req: id}); skip(id); note = {m: t(r.taker === me.pk ? "知らせて、手放しました" : "知らせました")}; render(); return openPanel("give", null, giveHtml()); }
-  if (a === "flag-review" && r) { await emit({t: "flag", what: "review", req: id}); closePanel(); note = {m: t("知らせました。このレビューには券が入りません")}; return render(); }
+  if (a === "flag-review" && r) { await emit({t: "flag", what: "review", req: id}); closePanel(); note = {m: t("知らせました。書いた人に券は入らず、あなたに半券が戻りました")}; return render(); }
   if (a === "copy-pk") { try { await navigator.clipboard.writeText(me.pk); } catch (e) { const r0 = document.createRange(); r0.selectNodeContents($("#my-pk")); getSelection().removeAllRanges(); getSelection().addRange(r0); } note = {m: t("番号を写しました")}; $("#note") && ($("#note").innerHTML = noteHtml()); return; }
   if (a === "gift") {
     const to = ($("#g-to").value || "").trim().toLowerCase();

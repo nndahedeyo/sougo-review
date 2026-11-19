@@ -59,8 +59,11 @@
       r.status = "done"; r.ok = ok; r.doneAt = t; r.auto = !!auto;
       const tk = U(r.taker), by = U(r.by);
       tk.gave++; by.got++;
-      // 役に立った → 券1枚。いまひとつ → 半券（0.5枚）。半券2枚で券1枚になる。危ない・ひどい内容として知らされたものは何もなし
-      if (ok) { tk.tickets++; tk.helped++; } else if (!r.flaggedReview) { tk.tickets += 0.5; tk.halves = (tk.halves || 0) + 1; }
+      // 券は依頼のときに1枚なくなり、返事のときに新しく出る（譲り渡しではない）。
+      // 役に立った → 書いた人に券1枚。いまひとつ → 書いた人と依頼した人に半券ずつ（半券2枚で券1枚）。
+      // 危ない・ひどいレビュー → 書いた人には何もなし、依頼した人には半券（いまひとつと同じ。返事の選び方が券で左右されないように）
+      if (ok) { tk.tickets++; tk.helped++; }
+      else { by.tickets += 0.5; by.halfBack = (by.halfBack || 0) + 1; if (!r.flaggedReview) { tk.tickets += 0.5; tk.halves = (tk.halves || 0) + 1; } }
       if (!auto) { by.judged++; if (ok) by.judgedOk++; }
       tk.lastReviewed = r.by;
     }
@@ -85,7 +88,9 @@
           : {...base, private: false, link: c.link.slice(0, 300), ask: String(c.ask).slice(0, 400)};
         ok = true;
       }
-      else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; u.tickets++; ok = true; }
+      // 取り下げ：待っている依頼だけ。集まりに入った依頼は、取り下げても券は戻らない
+      // （依頼を出す→つないでもらう→取り下げて券を戻す、をくり返して、つないだ人の券を作り出すのを防ぐ）
+      else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; if (!circleOf(r.id)) u.tickets++; else r.noRefund = true; ok = true; }
       else if (c.t === "take" && r && r.status === "open" && r.by !== e.pubkey && e.created_at >= r.at && U(r.by).lastReviewed !== e.pubkey
                && !(r.lapsedBy || []).includes(e.pubkey) && holding(e.pubkey) < (u.helped >= 1 ? R.holdMax : R.newHoldMax)) {
         r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; r.sharedAt = null; ok = true;

@@ -80,13 +80,17 @@ test("期限切れにした人は同じ依頼を引き受け直せない・実�
   e.push(ev("B", 8 * DAY, {t: "take", req: a.id}));
   S = reduce(e, 8 * DAY + 1); assert.equal(S.reqs[a.id].status, "open"); assert.equal(S.users.B.lapses, 1);
 });
-test("いまひとつは半券（0.5枚）、2つで1枚。知らせたレビューには何も入らない", () => {
+test("いまひとつは書いた人と依頼した人に半券ずつ（2つで1枚）。知らせたレビューは書いた人に何もなく、依頼した人に半券", () => {
   const a = ask("A", 1), b = ask("C", 1), c = ask("D", 1);
   const e = [a, b, c, ev("B", 2, {t: "take", req: a.id}), ev("B", 3, {t: "give", req: a.id, body}), ev("A", 4, {t: "judge", req: a.id, ok: false}),
              ev("B", 5, {t: "take", req: b.id}), ev("B", 6, {t: "give", req: b.id, body}), ev("C", 7, {t: "judge", req: b.id, ok: false}),
              ev("E", 5, {t: "take", req: c.id}), ev("E", 6, {t: "give", req: c.id, body}), ev("D", 7, {t: "flag", what: "review", req: c.id})];
   const S = reduce(e, 8);
   assert.equal(S.users.B.tickets, 2); assert.equal(S.users.E.tickets, 1);
+  assert.equal(S.users.A.tickets, 0.5); assert.equal(S.users.C.tickets, 0.5); assert.equal(S.users.D.tickets, 0.5);
+  // 役に立ったは依頼した人に何も戻らない。期限切れの自動の「役に立った」も同じ
+  const x = ask("F", 1), S2 = reduce([x, ev("G", 2, {t: "take", req: x.id}), ev("G", 3, {t: "give", req: x.id, body})], 3 + 8 * 86400);
+  assert.equal(S2.users.F.tickets, 0); assert.equal(S2.users.G.tickets, 2);
 });
 const {contributions} = require("../app/rules.js");
 function helpedUser(e, who, at) {   // who に「役に立った」の実績をつける
@@ -129,6 +133,13 @@ test("集まりが広がり、できた→確かにで完結し、貢献の記�
 test("つなぎの提案は14日で消える", () => {
   const e = []; helpedUser(e, "L", 1); const a = ask("A", 10), b = ask("B", 10); e.push(a, b); gave(e, "L", a, 12); const l = ev("L", 20, {t: "link", a: a.id, b: b.id}); e.push(l);
   assert.equal(reduce(e, 20 + 15 * DAY).links[l.id].status, "expired");
+});
+test("集まりに入った依頼は、取り下げても券が戻らない（つなぎで券を作り出すのを防ぐ）", () => {
+  const e = []; helpedUser(e, "L", 1);
+  const a = ask("A", 10), b = ask("B", 10); e.push(a, b); gave(e, "L", a, 12);
+  const l = ev("L", 20, {t: "link", a: a.id, b: b.id}); e.push(l, ev("A", 21, {t: "answer", link: l.id, ok: true}), ev("B", 22, {t: "answer", link: l.id, ok: true}), ev("B", 23, {t: "cancel", req: b.id}));
+  const S = reduce(e, 24); assert.equal(S.reqs[b.id].status, "cancelled"); assert.equal(S.users.B.tickets, 0);
+  const c = ask("C", 30); assert.equal(reduce([c, ev("C", 31, {t: "cancel", req: c.id})], 32).users.C.tickets, 1);   // ふつうの取り下げは戻る
 });
 test("つなぐ：2つのどちらも見たことがなければ提案できない。片方を見ていればよい", () => {
   const e = []; helpedUser(e, "L", 1); const a = ask("A", 10), b = ask("B", 10), c = ask("C", 10); e.push(a, b, c);
