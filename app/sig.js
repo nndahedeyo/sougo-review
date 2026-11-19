@@ -90,6 +90,12 @@
   }
   function newKey() { for (;;) { const b = (root.crypto || require("crypto").webcrypto).getRandomValues(new Uint8Array(32)); const d = num(b); if (d > 0n && d < N) return hex(b); } }
 
-  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex};
+  // 共有の秘密（ECDH）：自分のかぎ × 相手の番号。どちらの側から計算しても同じ32バイトになる（x座標だけを使う）
+  function shared(skHex, pkHex) {
+    const d = num(unhex(skHex)); if (d <= 0n || d >= N) throw new Error("bad key");
+    const Pp = liftX(num(unhex(pkHex))); if (!Pp) throw new Error("bad pubkey");
+    return n32(affine(mul(Pp, d))[0]);
+  }
+  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex, shared, sha};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sig = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

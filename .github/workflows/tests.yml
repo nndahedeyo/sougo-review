@@ -16,7 +16,7 @@ jobs:
       - name: 署名（公式の試験ベクトル）
         run: node tests/sig.test.js
       - name: 決まり
-        run: node --test tests/rules.test.js
+        run: node --test tests/rules.test.js tests/seal.test.js
       - name: index.html が部品から作り直されているか
         run: python3 tools/build.py && git diff --exit-code index.html
       - run: npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium

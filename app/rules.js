@@ -13,16 +13,21 @@
     linkDays: 14,      // つなぎの提案に返事がなければ、この日数で消える
     hideFlags: 2,      // 「危ない」がこの人数（見てあげた実績のある人）から付いた依頼は、だれの画面からも消える
   };
-  // いまは個人開発のアプリとホームページに絞る。種類を広げるときは、ここに1行足す
+  // いまは個人開発のアプリとホームページに絞る。種類を広げるときは、ここに1行足す。見てほしい所は複数選べる
   const GENRES = [
-    {id: "use", name: "使い心地", min: 30, fields: ["確かめた環境", "迷った・止まった所", "よかった所", "直すとよい所"]},
-    {id: "code", name: "コード", min: 45, fields: ["読んだ範囲", "危ない・わかりにくい所", "よかった所", "直し方の提案"]},
-    {id: "text", name: "説明・文章", min: 30, fields: ["読んだもの", "わかりにくい・言い過ぎの所", "よかった所", "直すとよい所"]},
-    {id: "look", name: "見た目", min: 20, fields: ["見た環境", "気になった所", "よかった所", "直すとよい所"]},
+    {id: "use", name: "使い心地", min: 30},
+    {id: "code", name: "コード", min: 45},
+    {id: "text", name: "文章", min: 30},
+    {id: "look", name: "見た目", min: 20},
   ];
   // 依頼する人の希望（だれに見てほしいか）。届いたレビューの券の数は、だれが書いても同じ1枚
   const WANTS = ["any", "human", "ai"];
   const gen = id => GENRES.find(g => g.id === id);
+  const genresOf = c => { const a = Array.isArray(c.genres) ? c.genres : [c.genre]; return GENRES.map(g => g.id).filter(id => a.includes(id)); };
+  const minutes = gs => gs.length ? Math.max(...gs.map(id => gen(id).min)) + 10 * (gs.length - 1) : 0;
+  const fields = gs => ["見た環境・範囲", ...gs.map(id => `${gen(id).name}で気になった所`), "よかった所", "直すとよい所"];
+  const isHex = (s, n) => typeof s === "string" && new RegExp(`^[0-9a-f]{${n}}$`).test(s);
+  const isSealed = s => typeof s === "string" && s.length < 6000 && /^1:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(s);
 
   function reduce(events, now) {
     // 未来の時刻をつけた出来事は数えない（時刻をずらして順番を横取りするのを防ぐ）
@@ -36,7 +41,9 @@
     function tick(t) {   // 時間で決まる移り変わり
       for (const l of Object.values(S.links)) if (l.status === "pending" && t > l.at + R.linkDays * DAY) l.status = "expired";
       for (const r of Object.values(S.reqs)) {
-        if (r.status === "taken" && t > r.takenAt + R.writeDays * DAY) { (r.lapsedBy = r.lapsedBy || []).push(r.taker); U(r.taker).lapses = (U(r.taker).lapses || 0) + 1; r.status = "open"; r.taker = null; r.lapsed = (r.lapsed || 0) + 1; }
+        // 非公開で、持ち主から中身のかぎが届かないまま期限が来たら、引き受けた人に印をつけずに戻す
+        if (r.status === "taken" && r.private && !r.shares[r.taker]) { if (t > r.takenAt + R.writeDays * DAY) { r.status = "open"; r.taker = null; } }
+        else if (r.status === "taken" && t > (r.private ? r.sharedAt : r.takenAt) + R.writeDays * DAY) { (r.lapsedBy = r.lapsedBy || []).push(r.taker); U(r.taker).lapses = (U(r.taker).lapses || 0) + 1; r.status = "open"; r.taker = null; r.lapsed = (r.lapsed || 0) + 1; }
         else if (r.status === "given" && t > r.givenAt + R.judgeDays * DAY) finish(r, true, r.givenAt + R.judgeDays * DAY, true);
       }
     }
@@ -57,19 +64,35 @@
       const r = c.req && S.reqs[c.req];
       let ok = false;
       if (c.t === "hello" && typeof c.name === "string") { u.name = c.name.slice(0, 24); ok = true; }
-      else if (c.t === "ask" && u.tickets >= 1 && gen(c.genre) && /^https:\/\/\S+$/.test(c.link || "") && (c.ask || "").trim()) {
+      else if (c.t === "ask" && u.tickets >= 1 && genresOf(c).length && (c.private === true
+                 ? isSealed(c.sealed) && isHex(c.n, 32) && String(c.hint || "").trim()
+                 : /^https:\/\/\S+$/.test(c.link || "") && String(c.ask || "").trim())) {
         u.tickets--;
-        S.reqs[e.id] = {id: e.id, by: e.pubkey, at: e.created_at, link: c.link.slice(0, 300), genre: c.genre, ask: String(c.ask).slice(0, 400), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
+        const base = {id: e.id, by: e.pubkey, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
+        S.reqs[e.id] = c.private === true
+          ? {...base, private: true, hint: String(c.hint).trim().slice(0, 80), sealed: c.sealed, n: c.n, shares: {}, link: "", ask: ""}
+          : {...base, private: false, link: c.link.slice(0, 300), ask: String(c.ask).slice(0, 400)};
         ok = true;
       }
       else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; u.tickets++; ok = true; }
       else if (c.t === "take" && r && r.status === "open" && r.by !== e.pubkey && e.created_at >= r.at && U(r.by).lastReviewed !== e.pubkey
                && !(r.lapsedBy || []).includes(e.pubkey) && holding(e.pubkey) < (u.helped >= 1 ? R.holdMax : R.newHoldMax)) {
-        r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; ok = true;
+        r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; r.sharedAt = null; ok = true;
       }
+      // 非公開：持ち主が、引き受けた人だけに中身のかぎを渡す（ふたりのかぎで包んである）
+      else if (c.t === "share" && r && r.private && r.by === e.pubkey && r.status === "taken" && c.to === r.taker && !r.shares[c.to] && isSealed(c.key)) {
+        r.shares[c.to] = c.key; r.sharedAt = e.created_at; ok = true;
+      }
+      // 非公開の依頼を公開する（持ち主だけ）。中身のかぎをそのまま出す
+      else if (c.t === "reveal" && r && r.private && r.by === e.pubkey && !r.revealed && live(r) && isHex(c.key, 64)) { r.revealed = true; r.openKey = c.key; ok = true; }
+      // 非公開のレビューを公開する（書いた人だけ。依頼が公開されたあと）
+      else if (c.t === "open-review" && r && r.private && r.revealed && r.taker === e.pubkey && r.sealedReview && !r.reviewKey && isHex(c.key, 64)) { r.reviewKey = c.key; ok = true; }
       else if (c.t === "release" && r && r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; ok = true; }
-      else if (c.t === "give" && r && r.status === "taken" && r.taker === e.pubkey && c.body && typeof c.body === "object") {
-        r.status = "given"; r.givenAt = e.created_at; r.used = String(c.used || "").slice(0, 60); r.body = c.body; r.reviewId = e.id; ok = true;
+      else if (c.t === "give" && r && r.status === "taken" && r.taker === e.pubkey
+               && (r.private ? r.shares[e.pubkey] && isSealed(c.sealed) && isSealed(c.keyFor) : c.body && typeof c.body === "object")) {
+        r.status = "given"; r.givenAt = e.created_at; r.reviewId = e.id; ok = true;
+        if (r.private) { r.sealedReview = c.sealed; r.keyFor = c.keyFor; r.body = null; r.used = ""; }
+        else { r.used = String(c.used || "").slice(0, 60); r.body = c.body; }
       }
       else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
       // つなぐ：「この依頼とこの依頼は合いそう」。提案できるのは「役に立った」をもらったことのある人で、どちらの持ち主でもない人。
@@ -113,9 +136,11 @@
         Object.assign(S.circles[c.circle], {status: "complete", confirmedBy: e.pubkey, doneAt: e.created_at}); ok = true;
       }
       // 危ない依頼（悪意のあるアプリへの誘導など）：「役に立った」をもらったことのある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
-      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.helped >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)) {
+      // 非公開の依頼は中身を見られるのが引き受けた人だけなので、かぎを受け取った人（実績のある人）1人の知らせで消える
+      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.helped >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)
+               && (!r.private || r.revealed || r.shares[e.pubkey])) {
         (r.flags = r.flags || []).push(e.pubkey); ok = true;
-        if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
+        if (r.flags.length >= (r.private && !r.revealed ? 1 : R.hideFlags)) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
       }
       // 危ない・ひどいレビュー：依頼した人がつける。券も半券も入らず、書いた人に印が残る
       else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === e.pubkey) {
@@ -140,6 +165,6 @@
 
   // pk がレビューを届けたことのある依頼か（つなぐの条件）
   const seen = (r, pk) => !!r && r.taker === pk && ["given", "done"].includes(r.status);
-  const api = {seen, reduce, contributions, R, GENRES, WANTS, gen, DAY};
+  const api = {seen, reduce, contributions, R, GENRES, WANTS, gen, genresOf, minutes, fields, DAY};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Rules = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

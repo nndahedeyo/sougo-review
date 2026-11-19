@@ -140,3 +140,53 @@ test("つなぐ：2つのどちらも見たことがなければ提案できな�
   const S = reduce(e, 25);
   assert.equal(S.links[l1.id], undefined); assert.equal(S.links[l2.id], undefined); assert.equal(S.links[l3.id].status, "pending");
 });
+// ---------- 見てほしい所を複数・非公開 ----------
+const pask = (pk, at, extra = {}) => ev(pk, at, {t: "ask", private: true, genres: ["use", "look"], hint: "家計簿アプリの最初の画面", sealed: "1:AAAA:BBBB", n: "0".repeat(32), ...extra});
+const sealed = "1:CCCC:DDDD", K = "a".repeat(64);
+test("見てほしい所は複数選べ、知らない種類は落とす。目安と書く欄が種類に合わせて増える", () => {
+  const {genresOf, minutes, fields} = require("../app/rules.js");
+  const a = ask("A", 1, {genre: undefined, genres: ["look", "use", "???"]});
+  const S = reduce([a], 2); assert.deepEqual(S.reqs[a.id].genres, ["use", "look"]);
+  assert.equal(minutes(["use", "look"]), 40); assert.equal(fields(["use", "look"]).length, 5);
+  assert.equal(Object.keys(reduce([ask("B", 1, {genre: "x"})], 2).reqs).length, 0);
+});
+test("非公開：ひとことと閉じた中身がないと出せない。中身はだれにも見えない形で残る", () => {
+  const ok = pask("A", 1), bad1 = pask("B", 1, {hint: " "}), bad2 = pask("C", 1, {sealed: "<script>"}), bad3 = pask("D", 1, {n: "zz"});
+  const S = reduce([ok, bad1, bad2, bad3], 2);
+  assert.deepEqual(Object.keys(S.reqs), [ok.id]); assert.equal(S.reqs[ok.id].link, ""); assert.equal(S.reqs[ok.id].private, true);
+});
+test("非公開：かぎは持ち主から引き受けた人にだけ渡せる。かぎがないと届けられない", () => {
+  const a = pask("A", 1); const e = [a, ev("B", 2, {t: "take", req: a.id}),
+    ev("B", 3, {t: "give", req: a.id, sealed, keyFor: sealed}),                 // かぎが来る前は届けられない
+    ev("C", 3, {t: "share", req: a.id, to: "B", key: sealed}),                  // 持ち主でない人は渡せない
+    ev("A", 4, {t: "share", req: a.id, to: "C", key: sealed})];                 // 引き受けていない人には渡せない
+  let S = reduce(e, 5); assert.equal(S.reqs[a.id].status, "taken"); assert.deepEqual(S.reqs[a.id].shares, {});
+  e.push(ev("A", 6, {t: "share", req: a.id, to: "B", key: sealed}), ev("B", 7, {t: "give", req: a.id, body}));   // 非公開は中身を閉じないと届けられない
+  S = reduce(e, 8); assert.equal(S.reqs[a.id].status, "taken");
+  e.push(ev("B", 9, {t: "give", req: a.id, sealed, keyFor: sealed}), ev("A", 10, {t: "judge", req: a.id, ok: true}));
+  S = reduce(e, 11); assert.equal(S.reqs[a.id].status, "done"); assert.equal(S.reqs[a.id].body, null); assert.equal(S.users.B.tickets, 2);
+});
+test("非公開：かぎが届かないまま期限が来たら、引き受けた人に印をつけずに戻す。期限はかぎが届いてから数える", () => {
+  const a = pask("A", 0), b = pask("C", 0);
+  let S = reduce([a, ev("B", 1, {t: "take", req: a.id})], 3 * DAY); assert.equal(S.reqs[a.id].status, "taken");   // 期限前はかぎを待つ
+  S = reduce([a, ev("B", 1, {t: "take", req: a.id})], 8 * DAY);
+  assert.equal(S.reqs[a.id].status, "open"); assert.equal(S.users.B.lapses, undefined);
+  const e = [b, ev("B", 1, {t: "take", req: b.id}), ev("C", 6 * DAY, {t: "share", req: b.id, to: "B", key: sealed})];
+  S = reduce(e, 8 * DAY); assert.equal(S.reqs[b.id].status, "taken");
+  S = reduce(e, 14 * DAY); assert.equal(S.reqs[b.id].status, "open"); assert.equal(S.users.B.lapses, 1);
+});
+test("非公開：公開は持ち主だけ。レビューの公開は、依頼が公開されたあと、書いた人だけ", () => {
+  const a = pask("A", 1); const e = [a, ev("B", 2, {t: "take", req: a.id}), ev("A", 3, {t: "share", req: a.id, to: "B", key: sealed}),
+    ev("B", 4, {t: "give", req: a.id, sealed, keyFor: sealed}), ev("B", 5, {t: "open-review", req: a.id, key: K}), ev("B", 5, {t: "reveal", req: a.id, key: K})];
+  let S = reduce(e, 6); assert.equal(S.reqs[a.id].revealed, undefined); assert.equal(S.reqs[a.id].reviewKey, undefined);
+  e.push(ev("A", 7, {t: "reveal", req: a.id, key: K}), ev("A", 8, {t: "open-review", req: a.id, key: K}));
+  S = reduce(e, 9); assert.equal(S.reqs[a.id].openKey, K); assert.equal(S.reqs[a.id].reviewKey, undefined);
+  e.push(ev("B", 10, {t: "open-review", req: a.id, key: K})); S = reduce(e, 11); assert.equal(S.reqs[a.id].reviewKey, K);
+});
+test("非公開の危ない依頼：かぎを受け取った実績のある人1人で消える。中身を見ていない人は知らせられない", () => {
+  const e = []; helpedUser(e, "L", 1); helpedUser(e, "M", 5);
+  const a = pask("A", 10); e.push(a, ev("M", 11, {t: "flag", what: "ask", req: a.id}));
+  let S = reduce(e, 12); assert.equal(S.reqs[a.id].status, "open");
+  e.push(ev("L", 13, {t: "take", req: a.id}), ev("A", 14, {t: "share", req: a.id, to: "L", key: sealed}), ev("L", 15, {t: "flag", what: "ask", req: a.id}));
+  S = reduce(e, 16); assert.equal(S.reqs[a.id].status, "hidden"); assert.equal(S.users.A.flaggedAsks, 1);
+});
