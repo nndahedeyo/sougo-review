@@ -247,3 +247,10 @@ test("共通のアカウント：かぎを持ち替えても、券と記録は�
   assert.equal(Object.values(S.reqs).filter(r => r.by === "ID").length, 1);
   assert.equal(S.reqs[a.id].byKey, "K1");
 });
+test("共通のアカウント：使われなくなったかぎで出したものは、何も数えない（別の人として最初の券ももらえない）", () => {
+  const resolve = (pk, t) => pk === "OLD" ? (t >= 15 ? "retired:OLD" : "ID") : null;
+  const a = ask("OLD", 10), b = ask("OLD", 16);
+  const S = reduce([a, b, ev("OLD", 17, {t: "hello", name: "x"})], 20, resolve);
+  assert.equal(S.reqs[a.id].by, "ID"); assert.equal(S.reqs[b.id], undefined);
+  assert.equal(S.users["retired:OLD"], undefined);
+});

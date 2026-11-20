@@ -74,6 +74,8 @@
       if (!c || typeof c !== "object") continue;
       tick(e.created_at);
       const signer = e.pubkey, who = (resolve && resolve(signer, e.created_at)) || signer;   // かぎが替わっても同じ人として数える
+      // 使われなくなったかぎ（持ち替え・取り戻しのあと）で出したものは、何も数えない（別の人として最初の券をもらうこともない）
+      if (who.startsWith("retired:")) { S.log.push({id: e.id, pk: who, at: e.created_at, t: c.t, req: c.req || null, ok: false}); continue; }
       const u = U(who);
       if (!u.joined) { u.joined = e.created_at; if (e.created_at <= R.starterUntil && (!STARTERS || STARTERS.includes(who))) { u.starter = true; u.tickets += R.start; } }
       const r = c.req && S.reqs[c.req];
