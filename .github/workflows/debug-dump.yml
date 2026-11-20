@@ -1,0 +1,22 @@
+name: debug-dump
+# 調べもの用：中継にある相互レビューの出来事（もともと公開のもの）を集めて、このブランチに置く
+on:
+  push:
+    branches: [debug-dump]
+    paths: [".github/workflows/debug-dump.yml", "debug/fetch.js"]
+permissions:
+  contents: write
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node debug/fetch.js
+      - run: |
+          git add debug/events.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -m "調べもの：出来事を集める" && git push -q || true
