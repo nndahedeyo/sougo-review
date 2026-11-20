@@ -426,10 +426,10 @@ function render() {
     m.innerHTML = `<p class="lead">${t("1件見てあげると、<br>1件見てもらえる。")}</p>
       <div style="margin-top:22px;display:grid;gap:12px"><input id="nm" maxlength="24" placeholder="${t("呼び名")}" aria-label="${t("呼び名")}" autocomplete="off">
       <button type="button" class="primary wide" data-act="start">${t("はじめる")}</button>
-      <p class="small" style="margin:0">${t("登録もパスワードもいりません。指紋や顔（パスキー）で守ります。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
+      <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
       <p class="small" id="st-msg" style="margin:0;color:var(--warm)" role="alert"></p>
       ${inApp ? `<p class="small" style="margin:0;color:var(--warm)">${t("アプリの中のブラウザでは、閉じると記録が消えることがあります。Safari や Chrome で開いてください。")}</p>` : ""}
-      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link acc" data-act="pk-open">${t("パスキーで開く")}</button><button type="button" class="link acc" data-act="show-key">${t("前に使っていたかぎで続ける")}</button></div>
+      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link acc" data-act="show-key">${t("前に使っていた方")}</button></div>
       <div id="st-key" class="job" hidden><span class="small">${t("「記録とかぎ」で書き写したかぎ（64文字）を入れると、券も記録もそのまま続きます。")}</span><input id="st-imp" placeholder="${t("かぎ（64文字）")}" aria-label="${t("かぎ（64文字）")}" autocomplete="off"><button type="button" data-act="start-import">${t("このかぎで続ける")}</button></div></div>`;
     return;
   }
@@ -659,7 +659,7 @@ function meHtml() {
   const all = S.log.filter(l => l.pk === me.id).reverse(), list = all.slice(0, histN), u = mine();
   return `<h2>${t("記録とかぎ")}</h2>
     <div class="job"><span>${t("見てあげた {g}・役に立った {h}・見てもらった {r}", {g: u.gave || 0, h: u.helped || 0, r: u.got || 0})}</span>${u.judged ? `<span class="small">${t("役に立ったを返した割合 {n}%", {n: Math.round(100 * u.judgedOk / u.judged)})}</span>` : ""}</div>
-    ${me.how === "passkey" ? `<div class="job"><b>${t("パスキーで守られています")}</b><span class="small">${t("ほかの端末では、はじめの画面の「パスキーで開く」から開けます（同じ Apple や Google のアカウントで同期している端末）。仮想市場でも同じアカウントです。")}</span></div>` : `<div class="job"><b>${t("パスキーで守る")}</b><span class="small">${t("かぎを書き写さなくても、指紋や顔で、ほかの端末からも開けるようになります。番号・券・記録はそのままです。")}</span><p class="small" id="pk-msg" style="margin:0;color:var(--warm)" role="alert"></p><button type="button" data-act="protect">${t("パスキーで守る")}</button></div>`}
+    ${me.how === "passkey" ? `<div class="job"><b>${t("パスキーで守られています")}</b></div>` : `<div class="job"><b>${t("パスキーで守る")}</b><span class="small">${t("指紋や顔で、ほかの端末からも開けるようになります。")}</span><p class="small" id="pk-msg" style="margin:0;color:var(--warm)" role="alert"></p><button type="button" data-act="protect">${t("パスキーで守る")}</button></div>`}
     <div class="job"><b>${t("かぎ")}</b><span class="small">${t(me.how === "passkey" ? "パスキーから作られるかぎです。パスキーが使えない端末で開くときに使えます。人に見せると、なりすまされます。" : "記録も非公開の中身も、このかぎで開きます。書き写して保管してください。人に見せると、なりすまされます。")}</span>
       <details ontoggle="if(this.open){try{localStorage.setItem('sougo.backed','1')}catch(e){}}"><summary class="small" style="cursor:pointer">${t("表示する")}</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
       <input id="imp" placeholder="${t("別の端末のかぎ（64文字）")}" aria-label="${t("別の端末のかぎ")}" autocomplete="off"><button type="button" data-act="import">${t("このかぎで続ける")}</button></div>
@@ -702,15 +702,20 @@ async function act(a, id) {
     return;
   }
   // パスキーで開く（ほかの端末で始めた人、仮想市場でアカウントを作った人）
+  const withPasskey = k => { const pk = pkFrom(k), A = AS && AS.accounts[AS.byKey[pk]];
+    setMe(k, (A && S && S.users[A.id] && S.users[A.id].name) || (A && A.display) || "", "passkey"); render(); return sync(); };
   if (a === "pk-open") {
     const k = await passkeyOpen();
-    if (!k) { $("#st-msg").textContent = t("パスキーで開けませんでした。この端末やブラウザでは使えないことがあります。そのときは「前に使っていたかぎで続ける」から。"); return; }
-    const pk = pkFrom(k), A = AS && AS.accounts[AS.byKey[pk]];
-    setMe(k, (A && S && S.users[A.id] && S.users[A.id].name) || (A && A.display) || "", "passkey"); render(); return sync();
+    if (!k) { $("#st-msg").textContent = t("パスキーで開けませんでした"); return; }
+    return withPasskey(k);
   }
   if (a === "forget") { if (me) { const old = store.get("sougo.oldkeys", []); old.push({sk: me.sk, pk: me.pk}); store.set("sougo.oldkeys", old.slice(-10)); }
     me = null; store.set("sougo.me", null); return render(); }
-  if (a === "show-key") { $("#st-key").hidden = false; return $("#st-imp").focus(); }
+  // 前に使っていた方：パスキーがあればそれで開く。なければ（閉じた・使えない端末）かぎを入れる欄を出す
+  if (a === "show-key") {
+    if ($("#st-key").hidden && !inApp) { const k = await passkeyOpen(); if (k) return withPasskey(k); }
+    $("#st-key").hidden = false; return $("#st-imp").focus();
+  }
   if (a === "start-import") {
     const k = ($("#st-imp").value || "").trim().toLowerCase(); let pk = null;
     try { if (/^[0-9a-f]{64}$/.test(k)) pk = Sig.hex(Sig.pubkey(Sig.unhex(k))); } catch (e) {}
@@ -802,7 +807,7 @@ async function act(a, id) {
     const ev = await emit({t: "rotate", to: npk}, Account.KIND, Account.TAG);
     if (!accountOk(ev)) { msg.textContent = t("持ち替えられませんでした"); return; }
     const id = me.id; setMe(k, me.name, "passkey", [{sk: me.sk, pk: me.pk}, ...(me.old || [])]); recompute();
-    note = {m: t("パスキーで守りました。ほかの端末では、はじめの画面の「パスキーで開く」から開けます")}; render(); sync();
+    note = {m: t("パスキーで守りました")}; render(); sync();
     return openPanel("me", null, meHtml());
   }
 }

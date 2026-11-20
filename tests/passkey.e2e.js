@@ -87,16 +87,16 @@ async function relay(page) {
     // パスキーで開き直す（同期した別の端末と同じ。試験用の認証器はパスキーを別の端末へ写せないので、同じ端末で閉じてから開く）
     const bt = (await st(B)).tickets;
     await B.evaluate(() => { localStorage.removeItem("sougo.me"); localStorage.removeItem("sougo.live"); localStorage.removeItem("sougo.ok"); }); await B.reload(); await B.waitForTimeout(1200);
-    check("記録を消すと、はじめの画面になる", !!(await B.$("[data-act=pk-open]")));
-    await B.click("[data-act=pk-open]"); await B.waitForTimeout(1500);
+    check("記録を消すと、はじめの画面になり、リンクは2つ（見本・前に使っていた方）", (await B.$$("#main .row button")).length === 2 && (await B.textContent("#main")).includes("前に使っていた方"));
+    await B.click("[data-act=show-key]"); await B.waitForTimeout(1500);
     const c = await st(B);
     check("パスキーで開くと、同じアカウント（同じ番号・券）に戻る", c.pk === b2.pk && c.id === b1.id && c.tickets === bt);
     check("名前も戻る", (await B.textContent("#main")).includes("べに"));
     check("持ち替えたあとのレビューが読める", await until(B, id => __sr.rplain[id] && JSON.stringify(__sr.rplain[id]).includes("色が見づらい"), r3));
-    // パスキーのない端末で「パスキーで開く」を押しても、案内が出るだけ
+    // パスキーのない端末で「前に使っていた方」を押すと、かぎを入れる欄が出る
     const C = await device();
-    await C.click("[data-act=pk-open]"); await C.waitForTimeout(1200);
-    check("パスキーがないときは、案内が出るだけ", (await C.textContent("#st-msg")).includes("開けませんでした") && !(await C.evaluate(() => __sr.me)));
+    await C.click("[data-act=show-key]"); await C.waitForTimeout(1200);
+    check("パスキーがないときは、かぎを入れる欄が出る", !(await C.isHidden("#st-key")) && !(await C.evaluate(() => __sr.me)));
     // 古いかぎを別の端末で使おうとしても、もう使えない
     const D = await device();
     await D.click("[data-act=show-key]"); await D.fill("#st-imp", oldSk); await D.click("[data-act=start-import]"); await D.waitForTimeout(1200);
