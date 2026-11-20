@@ -41,6 +41,16 @@ async function relay(page) {
     await q.fill("#nm", "仮"); await q.click("[data-act=start]"); await q.waitForTimeout(800);
     await q.click("[data-act=me]"); await q.waitForTimeout(300); await q.fill("#imp", key); await q.click("[data-act=import]"); await q.waitForTimeout(1500);
     check("別の端末でかぎを入れると、同じ券の数になる", (await tix(q)) === 0);
+    // はじめの画面から、前のかぎで続ける（新しい人を作らない）
+    const D = await b.newContext({locale: "ja-JP"}); const d = await open(D); await d.waitForTimeout(1500);
+    await d.click("[data-act=show-key]"); await d.fill("#st-imp", key); await d.click("[data-act=start-import]"); await d.waitForTimeout(1500);
+    check("はじめの画面からかぎで続けると、同じ人・同じ券", (await d.evaluate(() => __sr.me.pk)) === (await p.evaluate(() => __sr.me.pk)) && (await tix(d)) === 0 && (await d.textContent("#wallet")).includes("たろう"));
+    // 同じ呼び名がもういると、まず知らせる
+    const E = await b.newContext({locale: "ja-JP"}); const g = await open(E); await g.waitForTimeout(1500);
+    const before = store.length; await g.fill("#nm", "たろう"); await g.click("[data-act=start]"); await g.waitForTimeout(500);
+    check("同じ呼び名がいると、新しく作る前に知らせる", (await g.textContent("#st-msg")).includes("もういます") && store.length === before && !(await g.$("#wallet")));
+    await g.click("[data-act=start]"); await g.waitForTimeout(1000);
+    check("別の人なら、もう一度押すと始められる", !!(await g.$("#wallet")));
     // つながらないあいだ
     down = true; const C = await b.newContext({locale: "ja-JP"}); const r = await open(C);
     await r.fill("#nm", "はなこ"); await r.click("[data-act=start]"); await r.waitForTimeout(1500);

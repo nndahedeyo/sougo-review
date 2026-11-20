@@ -181,6 +181,11 @@ function netStatus() {
   if (mode === "demo") { n.dataset.act = "undemo"; n.setAttribute("role", "button"); n.style.cursor = "pointer"; }
 }
 
+// 端末がこのページの記録を勝手に消さないよう頼む（できるブラウザだけ）
+function keepStorage() { try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {} }
+// X や LINE などのアプリの中のブラウザは、閉じると記録が消えることがある
+const inApp = /(Twitter|FBAN|FBAV|Instagram|Line\/|LINE|micromessenger)/i.test(navigator.userAgent || "") && !/Safari\/[\d.]+$/.test(navigator.userAgent || "") || /\bwv\b/.test(navigator.userAgent || "");
+
 /* ---------- 出す ---------- */
 async function emit(c) {
   // 同じ秒に続けて出すと順番が入れ替わるので、自分の出来事は必ず前より後の時刻にする
@@ -369,7 +374,10 @@ function render() {
       <div style="margin-top:22px;display:grid;gap:12px"><input id="nm" maxlength="24" placeholder="${t("呼び名")}" aria-label="${t("呼び名")}" autocomplete="off">
       <button type="button" class="primary wide" data-act="start">${t("はじめる")}</button>
       <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
-      ${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo" style="justify-self:start">${t("見本で試す")}</button>`}</div>`;
+      <p class="small" id="st-msg" style="margin:0;color:var(--warm)" role="alert"></p>
+      ${inApp ? `<p class="small" style="margin:0;color:var(--warm)">${t("アプリの中のブラウザでは、閉じると記録が消えることがあります。Safari や Chrome で開いてください。")}</p>` : ""}
+      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link acc" data-act="show-key">${t("前に使っていたかぎで続ける")}</button></div>
+      <div id="st-key" class="job" hidden><span class="small">${t("「記録とかぎ」で書き写したかぎ（64文字）を入れると、券も記録もそのまま続きます。")}</span><input id="st-imp" placeholder="${t("かぎ（64文字）")}" aria-label="${t("かぎ（64文字）")}" autocomplete="off"><button type="button" data-act="start-import">${t("このかぎで続ける")}</button></div></div>`;
     return;
   }
   if (!S) { m.innerHTML = `<p class="empty">${t("読み込んでいます…")}</p>`; return; }
@@ -622,9 +630,20 @@ async function act(a, id) {
   const r = id && S && S.reqs[id];
   if (a === "start") {
     const name = ($("#nm").value || "").trim(); if (!name) return $("#nm").focus();
-    const sk = Sig.newKey(); me = {sk, pk: Sig.hex(Sig.pubkey(Sig.unhex(sk))), name}; store.set("sougo.me", me);
+    // 同じ呼び名の人がもういる：前に使っていた本人なら、新しく始めずに「かぎで続ける」を勧める（端末やブラウザが変わると別の人になるため）
+    if (S && Object.values(S.users).some(u => u.name === name) && $("#nm").dataset.ok !== name) {
+      $("#nm").dataset.ok = name; $("#st-msg").textContent = t("「{n}」という呼び名の人がもういます。前に使っていた本人なら、下の「かぎで続ける」から。別の人なら、もう一度「はじめる」を押してください。", {n: name}); $("#st-key").hidden = false; return;
+    }
+    const sk = Sig.newKey(); me = {sk, pk: Sig.hex(Sig.pubkey(Sig.unhex(sk))), name}; store.set("sougo.me", me); keepStorage();
     await emit({t: "hello", name}); render();
     return;
+  }
+  if (a === "show-key") { $("#st-key").hidden = false; return $("#st-imp").focus(); }
+  if (a === "start-import") {
+    const k = ($("#st-imp").value || "").trim().toLowerCase(); let pk = null;
+    try { if (/^[0-9a-f]{64}$/.test(k)) pk = Sig.hex(Sig.pubkey(Sig.unhex(k))); } catch (e) {}
+    if (!pk) { $("#st-imp").style.borderColor = "var(--warm)"; return $("#st-imp").focus(); }
+    me = {sk: k, pk, name: S && S.users[pk] && S.users[pk].name || ""}; store.set("sougo.me", me); keepStorage(); render(); return sync();
   }
   if (a === "demo" || a === "undemo") { location.hash = a === "demo" ? "#demo" : ""; return location.reload(); }
   if (a === "dismiss") { note = null; $("#note").innerHTML = ""; return; }
@@ -697,7 +716,7 @@ async function act(a, id) {
     const k = ($("#imp").value || "").trim().toLowerCase(); let pk = null;
     try { if (/^[0-9a-f]{64}$/.test(k)) pk = Sig.hex(Sig.pubkey(Sig.unhex(k))); } catch (e) {}
     if (!pk) { $("#imp").style.borderColor = "var(--warm)"; return; }
-    me = {sk: k, pk, name: nameOf(pk).replace(/#.*$/, "")}; store.set("sougo.me", me); closePanel(); render(); return sync();
+    me = {sk: k, pk, name: nameOf(pk).replace(/#.*$/, "")}; store.set("sougo.me", me); keepStorage(); closePanel(); render(); return sync();
   }
 }
 let pendingHello = null;
