@@ -237,3 +237,13 @@ test("保険の借り：ふだんは使えない。有効なら、待ってい�
     S = reduce(e, END + 12); assert.equal(S.users.B.tickets, 0);
   } finally { R.borrow = false; }
 });
+// ---------- 共通のアカウント（かぎが替わっても同じ人） ----------
+test("共通のアカウント：かぎを持ち替えても、券と記録は同じ人のまま", () => {
+  const resolve = (pk, t) => ({K1: "ID", K2: "ID"})[pk] || null;
+  const a = ask("K1", 10), e = [a, ev("B", 11, {t: "take", req: a.id}), ev("B", 12, {t: "give", req: a.id, body}), ev("K2", 13, {t: "judge", req: a.id, ok: true}), ask("K2", 14)];
+  const S = reduce(e, 20, resolve);
+  assert.equal(S.reqs[a.id].by, "ID"); assert.equal(S.reqs[a.id].status, "done");   // 別のかぎでも本人として返事できる
+  assert.equal(S.users.ID.tickets, 0); assert.equal(S.users.K1, undefined);            // 最初の1枚を使い、2件目は券がないので出せない
+  assert.equal(Object.values(S.reqs).filter(r => r.by === "ID").length, 1);
+  assert.equal(S.reqs[a.id].byKey, "K1");
+});

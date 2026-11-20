@@ -21,7 +21,8 @@ import websockets
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "stamps"
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://relay.nostr.band"]
-FILTER = {"kinds": [7710], "#t": ["sougo-review"]}
+# 相互レビューの出来事と、共通のアカウント（パスキー・持ち替え・取り戻し）の出来事
+FILTERS = [{"kinds": [7710], "#t": ["sougo-review"]}, {"kinds": [7720], "#t": ["kasou-account"]}]
 
 
 def event_id(ev):
@@ -30,6 +31,13 @@ def event_id(ev):
 
 
 async def fetch(url, found):
+    ok = True
+    for flt in FILTERS:
+        ok = await fetch_one(url, found, flt) and ok
+    return ok
+
+
+async def fetch_one(url, found, FILTER):
     try:
         async with websockets.connect(url, open_timeout=15, close_timeout=5, max_size=2 ** 23) as ws:
             until, page = None, 0

@@ -203,7 +203,11 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
     const Pp = liftX(num(unhex(pkHex))); if (!Pp) throw new Error("bad pubkey");
     return n32(affine(mul(Pp, d))[0]);
   }
-  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex, shared, sha};
+  // 公開鍵の点（x と y）。チェーン（Base など）のアドレスを作るときに使う
+  function pubXY(skHex) { const d = num(unhex(skHex)); if (d <= 0n || d >= N) throw new Error("bad key"); const [x, y] = affine(mulG(d)); return cat(n32(x), n32(y)); }
+  // 32バイトを、かぎとして使える数にする（0 と N 以上を避ける）
+  function toKey(bytes) { const d = mod(num(bytes), N - 1n) + 1n; return hex(n32(d)); }
+  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex, shared, sha, pubXY, toKey};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sig = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
 
@@ -282,7 +286,8 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
   const isHex = (s, n) => typeof s === "string" && new RegExp(`^[0-9a-f]{${n}}$`).test(s);
   const isSealed = s => typeof s === "string" && s.length < 6000 && /^1:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(s);
 
-  function reduce(events, now) {
+  // resolve(かぎ, 時刻)：そのかぎの持ち主のアカウント番号（共通のアカウントを使うとき）。なければ、かぎの番号のまま数える
+  function reduce(events, now, resolve) {
     // 未来の時刻をつけた出来事は数えない（時刻をずらして順番を横取りするのを防ぐ）
     const evs = events.filter(e => e.created_at <= now + R.futureSkew).slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
     const S = {users: {}, reqs: {}, links: {}, circles: {}, log: []};
@@ -318,62 +323,63 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
       let c; try { c = JSON.parse(e.content); } catch (x) { continue; }
       if (!c || typeof c !== "object") continue;
       tick(e.created_at);
-      const u = U(e.pubkey);
-      if (!u.joined) { u.joined = e.created_at; if (e.created_at <= R.starterUntil && (!STARTERS || STARTERS.includes(e.pubkey))) { u.starter = true; u.tickets += R.start; } }
+      const signer = e.pubkey, who = (resolve && resolve(signer, e.created_at)) || signer;   // かぎが替わっても同じ人として数える
+      const u = U(who);
+      if (!u.joined) { u.joined = e.created_at; if (e.created_at <= R.starterUntil && (!STARTERS || STARTERS.includes(who))) { u.starter = true; u.tickets += R.start; } }
       const r = c.req && S.reqs[c.req];
       let ok = false;
       if (c.t === "hello" && typeof c.name === "string") { u.name = c.name.slice(0, 24); ok = true; }
       // 紹介：「役に立った」をもらったことのある人が、自分の券を1枚、ほかの人に贈る（券は増えない）
-      else if (c.t === "gift" && isHex(c.to, 64) && c.to !== e.pubkey && u.helped >= 1 && u.tickets >= 1) { u.tickets--; u.gifted++; const v = U(c.to); v.tickets++; v.gotGift++; ok = true; }
+      else if (c.t === "gift" && isHex(c.to, 64) && c.to !== who && u.helped >= 1 && u.tickets >= 1) { u.tickets--; u.gifted++; const v = U(c.to); v.tickets++; v.gotGift++; ok = true; }
       else if (c.t === "ask" && (u.tickets >= 1 || canBorrow(u)) && genresOf(c).length && (c.private === true
                  ? isSealed(c.sealed) && isHex(c.n, 32) && String(c.hint || "").trim()
                  : /^https:\/\/\S+$/.test(c.link || "") && String(c.ask || "").trim())) {
         u.tickets--;
-        const base = {id: e.id, by: e.pubkey, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
+        const base = {id: e.id, by: who, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
         S.reqs[e.id] = c.private === true
-          ? {...base, private: true, hint: String(c.hint).trim().slice(0, 80), sealed: c.sealed, n: c.n, shares: {}, link: "", ask: ""}
-          : {...base, private: false, link: c.link.slice(0, 300), ask: String(c.ask).slice(0, 400)};
+          ? {...base, byKey: signer, private: true, hint: String(c.hint).trim().slice(0, 80), sealed: c.sealed, n: c.n, shares: {}, link: "", ask: ""}
+          : {...base, byKey: signer, private: false, link: c.link.slice(0, 300), ask: String(c.ask).slice(0, 400)};
         ok = true;
       }
       // 取り下げ：待っている依頼だけ。集まりに入った依頼は、取り下げても券は戻らない
       // （依頼を出す→つないでもらう→取り下げて券を戻す、をくり返して、つないだ人の券を作り出すのを防ぐ）
-      else if (c.t === "cancel" && r && r.by === e.pubkey && r.status === "open") { r.status = "cancelled"; if (!circleOf(r.id)) u.tickets++; else r.noRefund = true; ok = true; }
-      else if (c.t === "take" && r && r.status === "open" && r.by !== e.pubkey && e.created_at >= r.at && U(r.by).lastReviewed !== e.pubkey
-               && !(r.lapsedBy || []).includes(e.pubkey) && holding(e.pubkey) < (u.helped >= 1 ? R.holdMax : R.newHoldMax)) {
-        r.status = "taken"; r.taker = e.pubkey; r.takenAt = e.created_at; r.sharedAt = null; ok = true;
+      else if (c.t === "cancel" && r && r.by === who && r.status === "open") { r.status = "cancelled"; if (!circleOf(r.id)) u.tickets++; else r.noRefund = true; ok = true; }
+      else if (c.t === "take" && r && r.status === "open" && r.by !== who && e.created_at >= r.at && U(r.by).lastReviewed !== who
+               && !(r.lapsedBy || []).includes(who) && holding(who) < (u.helped >= 1 ? R.holdMax : R.newHoldMax)) {
+        r.status = "taken"; r.taker = who; r.takerKey = signer; r.takenAt = e.created_at; r.sharedAt = null; ok = true;
       }
       // 非公開：持ち主が、引き受けた人だけに中身のかぎを渡す（ふたりのかぎで包んである）
-      else if (c.t === "share" && r && r.private && r.by === e.pubkey && r.status === "taken" && c.to === r.taker && !r.shares[c.to] && isSealed(c.key)) {
-        r.shares[c.to] = c.key; r.sharedAt = e.created_at; ok = true;
+      else if (c.t === "share" && r && r.private && r.by === who && r.status === "taken" && c.to === r.taker && !r.shares[c.to] && isSealed(c.key)) {
+        r.shares[c.to] = c.key; (r.shareFrom = r.shareFrom || {})[c.to] = signer; r.sharedAt = e.created_at; ok = true;
       }
       // 非公開の依頼を公開する（持ち主だけ）。中身のかぎをそのまま出す
-      else if (c.t === "reveal" && r && r.private && r.by === e.pubkey && !r.revealed && live(r) && isHex(c.key, 64)) { r.revealed = true; r.openKey = c.key; ok = true; }
+      else if (c.t === "reveal" && r && r.private && r.by === who && !r.revealed && live(r) && isHex(c.key, 64)) { r.revealed = true; r.openKey = c.key; ok = true; }
       // 非公開のレビューを公開する（書いた人だけ。依頼が公開されたあと）
-      else if (c.t === "open-review" && r && r.private && r.revealed && r.taker === e.pubkey && r.sealedReview && !r.reviewKey && isHex(c.key, 64)) { r.reviewKey = c.key; ok = true; }
-      else if (c.t === "release" && r && r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; ok = true; }
-      else if (c.t === "give" && r && r.status === "taken" && r.taker === e.pubkey
-               && (r.private ? r.shares[e.pubkey] && isSealed(c.sealed) && isSealed(c.keyFor) : c.body && typeof c.body === "object")) {
+      else if (c.t === "open-review" && r && r.private && r.revealed && r.taker === who && r.sealedReview && !r.reviewKey && isHex(c.key, 64)) { r.reviewKey = c.key; ok = true; }
+      else if (c.t === "release" && r && r.status === "taken" && r.taker === who) { r.status = "open"; r.taker = null; ok = true; }
+      else if (c.t === "give" && r && r.status === "taken" && r.taker === who
+               && (r.private ? r.shares[who] && isSealed(c.sealed) && isSealed(c.keyFor) : c.body && typeof c.body === "object")) {
         r.status = "given"; r.givenAt = e.created_at; r.reviewId = e.id; ok = true;
-        if (r.private) { r.sealedReview = c.sealed; r.keyFor = c.keyFor; r.body = null; r.used = ""; }
+        if (r.private) { r.sealedReview = c.sealed; r.keyFor = c.keyFor; r.giveKey = signer; r.giveTo = isHex(c.to, 64) ? c.to : r.byKey; r.body = null; r.used = ""; }
         else { r.used = String(c.used || "").slice(0, 60); r.body = c.body; }
       }
-      else if (c.t === "judge" && r && r.status === "given" && r.by === e.pubkey) { finish(r, !!c.ok, e.created_at); ok = true; }
+      else if (c.t === "judge" && r && r.status === "given" && r.by === who) { finish(r, !!c.ok, e.created_at); ok = true; }
       // つなぐ：「この依頼とこの依頼は合いそう」。提案できるのは「役に立った」をもらったことのある人で、どちらの持ち主でもない人。
       // 2つのうち少なくとも1つは、自分がレビューを届けたことのある依頼（中身をよく知っている人がつなぐ）
-      else if (c.t === "link" && live(S.reqs[c.a]) && live(S.reqs[c.b]) && c.a !== c.b && u.helped >= 1 && (seen(S.reqs[c.a], e.pubkey) || seen(S.reqs[c.b], e.pubkey))) {
+      else if (c.t === "link" && live(S.reqs[c.a]) && live(S.reqs[c.b]) && c.a !== c.b && u.helped >= 1 && (seen(S.reqs[c.a], who) || seen(S.reqs[c.b], who))) {
         const A = S.reqs[c.a], B = S.reqs[c.b], key = [A.by, B.by].sort().join(":");
         const ca = circleOf(A.id), cb = circleOf(B.id);
-        if (A.by !== B.by && e.pubkey !== A.by && e.pubkey !== B.by && !pairs.has(key) && !(ca && ca === cb)) {
-          S.links[e.id] = {id: e.id, by: e.pubkey, at: e.created_at, a: A.id, b: B.id, owners: [A.by, B.by], why: String(c.why || "").slice(0, 300), yes: [], status: "pending"};
+        if (A.by !== B.by && who !== A.by && who !== B.by && !pairs.has(key) && !(ca && ca === cb)) {
+          S.links[e.id] = {id: e.id, by: who, at: e.created_at, a: A.id, b: B.id, owners: [A.by, B.by], why: String(c.why || "").slice(0, 300), yes: [], status: "pending"};
           ok = true;
         }
       }
       // 受ける・断る：両方の持ち主が受けると成立。つないだ人に券が1枚入り、集まりができる（すでにあれば広がる）
-      else if (c.t === "answer" && S.links[c.link] && S.links[c.link].status === "pending" && S.links[c.link].owners.includes(e.pubkey) && !S.links[c.link].yes.includes(e.pubkey)) {
+      else if (c.t === "answer" && S.links[c.link] && S.links[c.link].status === "pending" && S.links[c.link].owners.includes(who) && !S.links[c.link].yes.includes(who)) {
         const l = S.links[c.link]; ok = true;
         if (!c.ok) l.status = "declined";
         else {
-          l.yes.push(e.pubkey);
+          l.yes.push(who);
           if (l.yes.length === 2) {
             const key = l.owners.slice().sort().join(":");
             if (pairs.has(key)) l.status = "expired";
@@ -392,26 +398,26 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
         }
       }
       // できた：集まりの仲間が、形になったもののリンクを出す。別の仲間が1人「確かに」と押せば完結
-      else if (c.t === "made" && S.circles[c.circle] && S.circles[c.circle].status === "active" && S.circles[c.circle].members.includes(e.pubkey) && /^https:\/\/\S+$/.test(c.url || "")) {
-        Object.assign(S.circles[c.circle], {status: "made", madeBy: e.pubkey, url: c.url.slice(0, 300), what: String(c.what || "").slice(0, 300), madeAt: e.created_at}); ok = true;
+      else if (c.t === "made" && S.circles[c.circle] && S.circles[c.circle].status === "active" && S.circles[c.circle].members.includes(who) && /^https:\/\/\S+$/.test(c.url || "")) {
+        Object.assign(S.circles[c.circle], {status: "made", madeBy: who, url: c.url.slice(0, 300), what: String(c.what || "").slice(0, 300), madeAt: e.created_at}); ok = true;
       }
-      else if (c.t === "confirm" && S.circles[c.circle] && S.circles[c.circle].status === "made" && S.circles[c.circle].members.includes(e.pubkey) && S.circles[c.circle].madeBy !== e.pubkey) {
-        Object.assign(S.circles[c.circle], {status: "complete", confirmedBy: e.pubkey, doneAt: e.created_at}); ok = true;
+      else if (c.t === "confirm" && S.circles[c.circle] && S.circles[c.circle].status === "made" && S.circles[c.circle].members.includes(who) && S.circles[c.circle].madeBy !== who) {
+        Object.assign(S.circles[c.circle], {status: "complete", confirmedBy: who, doneAt: e.created_at}); ok = true;
       }
       // 危ない依頼（悪意のあるアプリへの誘導など）：「役に立った」をもらったことのある人が R.hideFlags 人つけると、だれの画面からも消える。券は戻らない
       // 非公開の依頼は中身を見られるのが引き受けた人だけなので、知らせられるのは、かぎを受け取った人（実績のある人）。
       // 公開と同じく R.hideFlags 人そろって消える。知らせた人が引き受け中なら手放したことにして、ほかの人が確かめられるようにする
-      else if (c.t === "flag" && c.what === "ask" && r && r.by !== e.pubkey && u.helped >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(e.pubkey)
-               && (!r.private || r.revealed || r.shares[e.pubkey])) {
-        (r.flags = r.flags || []).push(e.pubkey); ok = true;
-        if (r.status === "taken" && r.taker === e.pubkey) { r.status = "open"; r.taker = null; }
+      else if (c.t === "flag" && c.what === "ask" && r && r.by !== who && u.helped >= 1 && ["open", "taken"].includes(r.status) && !(r.flags || []).includes(who)
+               && (!r.private || r.revealed || r.shares[who])) {
+        (r.flags = r.flags || []).push(who); ok = true;
+        if (r.status === "taken" && r.taker === who) { r.status = "open"; r.taker = null; }
         if (r.flags.length >= R.hideFlags) { r.status = "hidden"; r.taker = null; U(r.by).flaggedAsks++; }
       }
       // 危ない・ひどいレビュー：依頼した人がつける。券も半券も入らず、書いた人に印が残る
-      else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === e.pubkey) {
+      else if (c.t === "flag" && c.what === "review" && r && r.status === "given" && r.by === who) {
         r.flaggedReview = true; finish(r, false, e.created_at); U(r.taker).flaggedReviews++; ok = true;
       }
-      S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
+      S.log.push({id: e.id, pk: who, at: e.created_at, t: c.t, req: c.req || (c.t === "ask" ? e.id : null), ok});
     }
     tick(now);
     return S;
@@ -436,6 +442,123 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 
 </script>
 <script>
+// アカウント（がまぐちにあたる部分、jeni のプロフィールカード）の決まり。
+// 署名つきの出来事の並びから、だれが計算しても同じ「アカウントの今」になる。運営もサーバーもいない。
+//
+// - アカウントの番号は、はじめに使ったかぎの番号（ずっと変わらない）
+// - いま使うかぎは「持ち替え」や「取り戻し」で変わる
+// - 名前（@なまえ）は早い者勝ちで1つのアカウントに1つ。名前で送り先を探せる
+// - 信頼できる人を決めておくと、かぎをなくしても、その人たちの承認で新しいかぎに取り戻せる。
+//   取り戻しは承認がそろってから3日待って効く。そのあいだに今のかぎで取り消せる（信頼した人が勝手に乗っ取れないように）
+// - かぎを盗まれたとき：盗んだ人は信頼できる人をすぐには替えられない（替えるのは3日後に効く。そのあいだは前の人たちで取り戻せる）。
+//   信頼できる人（2人以上）が「全員」承認した取り戻しは、今のかぎでも取り消せない（盗んだ人に取り消されないように）。
+//   承認がそろった時点で、待っている「信頼できる人の替え」は取りやめになる
+// - 名前（@なまえ）はあとからでも決められる（相互レビューのように呼び名だけで始める場所があるため）
+"use strict";
+(function (root) {
+  const DAY = 86400;
+  const R = {wait: 3 * DAY, futureSkew: 600, maxGuardians: 5, askDays: 30};
+  const KIND = 7720, TAG = "kasou-account";
+  const HANDLE = /^[a-z0-9][a-z0-9-]{1,19}$/;
+  const isHex = (s, n) => typeof s === "string" && new RegExp(`^[0-9a-f]{${n}}$`).test(s);
+  const str = (v, n) => String(v == null ? "" : v).slice(0, n);
+  const links = v => (Array.isArray(v) ? v : []).filter(u => /^https:\/\/\S+$/.test(String(u))).slice(0, 5).map(u => str(u, 200));
+
+  function reduce(events, now) {
+    const evs = events.filter(e => e.created_at <= now + R.futureSkew).slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
+    const S = {accounts: {}, byHandle: {}, byKey: {}, log: []};
+    const used = new Set();   // 一度でも使われたかぎ（使い回させない）
+    function setKey(A, k, t, why) {
+      delete S.byKey[A.key]; A.key = k; S.byKey[k] = A.id; used.add(k);
+      A.keys.push({key: k, at: t, why}); A.recovery = {};
+    }
+    function tick(t) {
+      for (const A of Object.values(S.accounts)) if (A.pendingGuard && t >= A.pendingGuard.at + R.wait) {
+        A.guard = {list: A.pendingGuard.list, need: A.pendingGuard.need}; A.pendingGuard = null; A.recovery = {};
+      }
+      for (const A of Object.values(S.accounts)) for (const [to, r] of Object.entries(A.recovery)) {
+        if (r.since != null && t >= r.since + R.wait && !used.has(to)) { setKey(A, to, r.since + R.wait, "recover"); break; }
+        else if (r.since == null && t > r.at + R.askDays * DAY) delete A.recovery[to];   // 頼んだまま承認がそろわなければ消える
+      }
+    }
+    for (const e of evs) {
+      let c; try { c = JSON.parse(e.content); } catch (x) { continue; }
+      if (!c || typeof c !== "object") continue;
+      tick(e.created_at);
+      const me = S.byKey[e.pubkey] && S.accounts[S.byKey[e.pubkey]];
+      let ok = false;
+      if (c.t === "open" && !me && !used.has(e.pubkey) && (c.handle == null || c.handle === "" || (HANDLE.test(c.handle) && !S.byHandle[c.handle]))) {
+        const A = S.accounts[e.pubkey] = {id: e.pubkey, handle: c.handle || "", display: str(c.display, 24), line: str(c.line, 80), links: links(c.links),
+          key: null, keys: [], guard: {list: [], need: 0}, pendingGuard: null, recovery: {}, at: e.created_at};
+        if (A.handle) S.byHandle[A.handle] = A.id;
+        setKey(A, e.pubkey, e.created_at, "open"); ok = true;
+      }
+      // 名前をあとから決める（まだ名前のないアカウントだけ。決めた名前は変えられない）
+      else if (c.t === "name" && me && !me.handle && HANDLE.test(c.handle || "") && !S.byHandle[c.handle]) { me.handle = c.handle; S.byHandle[c.handle] = me.id; ok = true; }
+      else if (c.t === "card" && me) {
+        if ("display" in c) me.display = str(c.display, 24);
+        if ("line" in c) me.line = str(c.line, 80);
+        if ("links" in c) me.links = links(c.links);
+        ok = true;
+      }
+      // 信頼できる人：ほかのアカウントの番号を1〜5人、そのうち何人の承認で取り戻せるか
+      else if (c.t === "guard" && me && Array.isArray(c.list)) {
+        const list = [...new Set(c.list)].filter(id => S.accounts[id] && id !== me.id).slice(0, R.maxGuardians);
+        const need = Math.floor(Number(c.need));
+        if (list.length === c.list.length && (list.length === 0 || (need >= 1 && need <= list.length))) {
+          const g = {list, need: list.length ? need : 0};
+          // まだだれもいないときはすぐ決まる。替えるときは3日後に効く（盗んだ人がすぐ自分の仲間に替えられないように）
+          if (!me.guard.list.length) { me.guard = g; me.pendingGuard = null; me.recovery = {}; } else me.pendingGuard = {...g, at: e.created_at};
+          ok = true;
+        }
+      }
+      // 持ち替え：今のかぎで、新しいかぎに替える（端末を替えるとき）
+      else if (c.t === "rotate" && me && isHex(c.to, 64) && !used.has(c.to) && !S.byKey[c.to]) { setKey(me, c.to, e.created_at, "rotate"); ok = true; }
+      // 取り戻しを頼む：新しいかぎで「このアカウントを取り戻したい」と出す
+      else if (c.t === "ask" && !me && !used.has(e.pubkey) && S.accounts[c.account] && S.accounts[c.account].guard.list.length) {
+        const A = S.accounts[c.account];
+        if (!A.recovery[e.pubkey]) { A.recovery[e.pubkey] = {at: e.created_at, ok: [], since: null}; ok = true; }
+      }
+      // 承認：信頼できる人（のアカウントの今のかぎ）が、頼まれた取り戻しを認める
+      else if (c.t === "approve" && me && S.accounts[c.account] && isHex(c.to, 64)) {
+        const A = S.accounts[c.account], r = A.recovery[c.to];
+        if (r && A.guard.list.includes(me.id) && !r.ok.includes(me.id)) {
+          r.ok.push(me.id); ok = true;
+          // 承認がそろった：待っている「信頼できる人の替え」は取りやめる（盗んだ人の替えより、今の信頼できる人を優先する）
+          if (r.since == null && r.ok.length >= A.guard.need) { r.since = e.created_at; A.pendingGuard = null; }
+          // 2人以上の全員が承認：今のかぎでも取り消せない（1人だけの承認で乗っ取れないよう、2人以上のとき）
+          if (A.guard.list.length >= 2 && r.ok.length === A.guard.list.length) r.all = true;
+        }
+      }
+      // 取り消し：今のかぎを持っている本人が、頼まれている取り戻しを止める
+      else if (c.t === "cancel" && me && isHex(c.to, 64) && me.recovery[c.to] && !me.recovery[c.to].all) { delete me.recovery[c.to]; ok = true; }
+      S.log.push({id: e.id, pk: e.pubkey, at: e.created_at, t: c.t, ok, account: (me && me.id) || c.account || (c.t === "open" ? e.pubkey : null)});
+    }
+    tick(now);
+    return S;
+  }
+  // ある時刻に、そのかぎがどのアカウントのかぎだったか（相互レビューなどが、かぎが替わっても同じ人として数えるため）
+  function ownerAt(S, pk, t) {
+    for (const A of Object.values(S.accounts)) for (let i = 0; i < A.keys.length; i++)
+      if (A.keys[i].key === pk && t >= A.keys[i].at && (i + 1 >= A.keys.length || t < A.keys[i + 1].at)) return A.id;
+    return null;
+  }
+  // 何度も引くとき用（相互レビューの出来事を1つずつ数えるとき）。使われなくなったかぎで出したものは、だれのものにもしない
+  // （持ち替え・取り戻しのあとに、古いかぎや盗まれたかぎで出したものが、アカウントの分として数えられないように）
+  function resolver(S) {
+    const idx = {};
+    for (const A of Object.values(S.accounts)) A.keys.forEach((k, i) => (idx[k.key] = idx[k.key] || []).push({id: A.id, from: k.at, to: i + 1 < A.keys.length ? A.keys[i + 1].at : Infinity}));
+    return (pk, t) => { const xs = idx[pk]; if (!xs) return null;
+      for (const x of xs) if (t >= x.from && t < x.to) return x.id;
+      return t >= xs[0].from ? "retired:" + pk : null; };
+  }
+  const byHandle = (S, h) => S.byHandle[String(h || "").replace(/^@/, "").toLowerCase()] ? S.accounts[S.byHandle[String(h).replace(/^@/, "").toLowerCase()]] : null;
+  const api = {reduce, byHandle, ownerAt, resolver, R, KIND, TAG, HANDLE, DAY};
+  if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Account = api;
+})(typeof globalThis !== "undefined" ? globalThis : this);
+
+</script>
+<script>
 // 英語の画面の言葉。左が日本語（画面の中の元の言葉）、右が英語。言葉を足すときは、ここに1行足す
 "use strict";
 var EN = {
@@ -455,7 +578,7 @@ var EN = {
   "1件見てあげると、<br>1件見てもらえる。": "Review one,<br>get one reviewed.",
   "呼び名": "Your name",
   "はじめる": "Start",
-  "登録もパスワードもいりません。": "No sign-up, no password. ",
+  "登録もパスワードもいりません。指紋や顔（パスキー）で守ります。": "No sign-up, no password. Protected by your fingerprint or face (passkey). ",
   "券が1枚あるので、すぐに見てもらえます。": "You have 1 ticket, so you can ask for a review right away.",
   "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。": "Review someone to earn a ticket, or get one from a person who invites you.",
 
@@ -736,6 +859,23 @@ var EN = {
   "公開した": "Made public",
   "レビューを公開": "Made review public",
   "券を贈った": "Gave ticket",
+  "パスキーで開く": "Open with passkey",
+  "パスキーで開けませんでした。この端末やブラウザでは使えないことがあります。そのときは「前に使っていたかぎで続ける」から。": "Couldn't open with a passkey. Some devices and browsers don't support it. If so, use \"I have a key\".",
+  "はじめの画面へ": "Back to start",
+  "このかぎは、もう使われていません": "This key is no longer in use",
+  "パスキーに持ち替えたか、取り戻されたアカウントのかぎです。パスキーで開いてください。": "This account moved to a passkey or was recovered. Open it with your passkey.",
+  "パスキーで守られています": "Protected by a passkey",
+  "ほかの端末では、はじめの画面の「パスキーで開く」から開けます（同じ Apple や Google のアカウントで同期している端末）。仮想市場でも同じアカウントです。": "On other devices, tap \"Open with passkey\" on the start screen (devices synced with the same Apple or Google account). It's the same account in Kasou Shijo.",
+  "パスキーで守る": "Protect with passkey",
+  "かぎを書き写さなくても、指紋や顔で、ほかの端末からも開けるようになります。番号・券・記録はそのままです。": "Open from other devices with your fingerprint or face, without copying the key. Your number, tickets and history stay the same.",
+  "パスキーから作られるかぎです。パスキーが使えない端末で開くときに使えます。人に見せると、なりすまされます。": "This key is made from your passkey. Use it on devices without passkeys. Anyone who sees it can pose as you.",
+  "この端末やブラウザでは、パスキーが使えませんでした。かぎを書き写して保管してください。": "Passkeys didn't work on this device or browser. Please copy your key and keep it safe.",
+  "このパスキーは、もう別のアカウントで使われています。": "This passkey is already used by another account.",
+  "持ち替えられませんでした": "Couldn't switch keys",
+  "パスキーで守りました。ほかの端末では、はじめの画面の「パスキーで開く」から開けます": "Protected. On other devices, tap \"Open with passkey\" on the start screen",
+  "この依頼を出したときのかぎが、この端末にありません": "The key you used for this request isn't on this device",
+  "パスキー": "Passkey",
+  "指紋や顔でかぎを作り直すので、書き写さなくても、同期しているほかの端末で「パスキーで開く」から開けます。仮想市場・jeni と同じアカウントです。使えない端末では、かぎを端末の中に置きます。": "Your key is rebuilt from your fingerprint or face, so you can open it on your other synced devices with \"Open with passkey\" without copying anything. It's the same account as Kasou Shijo and jeni. On devices without passkeys, the key stays on the device.",
 };
 
 </script>
@@ -757,22 +897,32 @@ const store = {
 };
 
 /* ---------- かぎ（端末の中だけ） ---------- */
-let me = store.get("sougo.me", null);          // {sk, pk, name}
+let me = store.get("sougo.me", null);          // {sk, pk, name, how, old}。id は数えるときの番号（共通のアカウントの番号。なければ pk）
+if (me && !me.id) me.id = me.pk;
 let mode = "live";                               // live / demo（見本は #demo のときだけ）
-let events = [], S = null, note = null, skipped = new Set(store.get("sougo.skip", []));
+let events = [], S = null, AS = null, note = null, skipped = new Set(store.get("sougo.skip", []));
 
 /* ---------- 出来事の置き場所 ---------- */
 const bucket = () => mode === "demo" ? "sougo.demo" : "sougo.live";
 function loadEvents() { events = store.get(bucket(), []); }
 function saveEvents() { store.set(bucket(), events.slice(-8000)); }
 function addEvent(ev) { if (events.some(e => e.id === ev.id)) return false; events.push(ev); saveEvents(); return true; }
-function recompute() { S = Rules.reduce(events.filter(e => e.kind === KIND), now()); }
+// 共通のアカウント（仮想市場・jeni と同じ）：かぎを持ち替えても、同じアカウントなら同じ人として数える
+function recompute() {
+  AS = Account.reduce(events.filter(e => e.kind === Account.KIND), now());
+  const who = Account.resolver(AS);
+  S = Rules.reduce(events.filter(e => e.kind === KIND), now(), who);
+  // 自分：いまのかぎがどのアカウントのかぎか。アカウントの前のかぎなら、もう使えない
+  if (me) { const cur = AS.byKey[me.pk]; me.retired = !cur && Object.values(AS.accounts).some(A => A.keys.some(k => k.key === me.pk)); me.id = cur || me.pk;
+    if (!me.name && S.users[me.id] && S.users[me.id].name) { me.name = S.users[me.id].name; store.set("sougo.me", me); } }
+}
+const ours = ev => ev && (ev.kind === KIND && (ev.tags || []).some(t => t[0] === "t" && t[1] === TAG) || ev.kind === Account.KIND && (ev.tags || []).some(t => t[0] === "t" && t[1] === Account.TAG));
 
 /* ---------- リレー（Nostr） ---------- */
 const sockets = [];
 let verified = new Set(store.get("sougo.ok", []));
 async function accept(ev) {
-  if (!ev || ev.kind !== KIND || !(ev.tags || []).some(t => t[0] === "t" && t[1] === TAG)) return;
+  if (!ours(ev)) return;
   if (!verified.has(ev.id)) { if (!(await Sig.verifyEvent(ev))) return; verified.add(ev.id); store.set("sougo.ok", [...verified].slice(-5000)); }
   if (addEvent(ev)) schedule();
 }
@@ -782,12 +932,14 @@ function schedule() { clearTimeout(t0); t0 = setTimeout(() => { recompute(); liv
 let quietUntil = Date.now() + 8000;   // 開いた直後は、古い出来事を読み込む途中で券の数が動くので「増えました」を出さない
 function connectOne(url, wait) {
   let ws; try { ws = new WebSocket(url); } catch (e) { return; }
-  ws.onopen = () => { wait = 2000; ws.send(JSON.stringify(["REQ", "sr", {kinds: [KIND], "#t": [TAG], limit: 500}])); flush(); netStatus(); };
+  // 相互レビューの出来事と、共通のアカウントの出来事を、別々に読む
+  const subs = {sr: {kinds: [KIND], "#t": [TAG]}, ac: {kinds: [Account.KIND], "#t": [Account.TAG]}}, pg = {};
+  ws.onopen = () => { wait = 2000; for (const k in subs) { pg[k] = {oldest: Infinity, got: 0, page: 0}; ws.send(JSON.stringify(["REQ", k, {...subs[k], limit: 500}])); } flush(); netStatus(); };
   // 古い出来事もすべて読む（500件ずつさかのぼる）。全部読まないと、券の数が人によってずれる
-  let oldest = Infinity, got = 0, page = 0;
-  ws.onmessage = m => { try { const d = JSON.parse(m.data);
-    if (d[0] === "EVENT") { got++; if (d[2] && d[2].created_at < oldest) oldest = d[2].created_at; accept(d[2]); }
-    if (d[0] === "EOSE") { quietUntil = Math.max(quietUntil, Date.now() + 3000); if (got >= 500 && page < 40) { page++; got = 0; ws.send(JSON.stringify(["REQ", "sr" + page, {kinds: [KIND], "#t": [TAG], until: oldest - 1, limit: 500}])); } }
+  const base = id => String(id).replace(/[0-9]+$/, "");
+  ws.onmessage = m => { try { const d = JSON.parse(m.data), k = base(d[1]), q = pg[k];
+    if (d[0] === "EVENT") { if (q) { q.got++; if (d[2] && d[2].created_at < q.oldest) q.oldest = d[2].created_at; } accept(d[2]); }
+    if (d[0] === "EOSE" && q) { quietUntil = Math.max(quietUntil, Date.now() + 3000); if (q.got >= 500 && q.page < 40) { q.page++; q.got = 0; ws.send(JSON.stringify(["REQ", k + q.page, {...subs[k], until: q.oldest - 1, limit: 500}])); } }
   } catch (e) {} };
   // 切れたら（電波が弱い、画面を閉じていた）間をあけてつなぎ直す
   ws.onclose = () => { const i = sockets.indexOf(ws); if (i >= 0) sockets.splice(i, 1); setTimeout(netStatus, 50); setTimeout(() => connectOne(url, Math.min((wait || 2000) * 2, 60000)), wait || 2000); };
@@ -815,35 +967,71 @@ function netStatus() {
 // 端末がこのページの記録を勝手に消さないよう頼む（できるブラウザだけ）
 function keepStorage() { try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {} }
 // X や LINE などのアプリの中のブラウザは、閉じると記録が消えることがある
+/* ---------- パスキー（仮想市場と同じしくみ・同じアカウント） ----------
+   指紋や顔でかぎを作り直せる。Apple や Google のアカウントで同期していれば、ほかの端末でも同じかぎになる。
+   作り方を仮想市場とそろえているので、同じパスキーなら、どちらで開いても同じアカウント */
+const enc = new TextEncoder(), SALT = enc.encode("kasou-account-v1");
+const rand = n => crypto.getRandomValues(new Uint8Array(n));
+const pkFrom = sk => Sig.hex(Sig.pubkey(Sig.unhex(sk)));
+async function keyFromPrf(first) { return Sig.toKey(await Sig.sha(new Uint8Array([...enc.encode("kasou/account/key"), ...new Uint8Array(first)]))); }
+async function passkeyNew(label) {
+  if (!window.PublicKeyCredential || !navigator.credentials) return null;
+  try {
+    const c = await navigator.credentials.create({publicKey: {challenge: rand(32), rp: {name: "nndahedeyo"}, user: {id: rand(16), name: label, displayName: label},
+      pubKeyCredParams: [{type: "public-key", alg: -7}, {type: "public-key", alg: -257}], authenticatorSelection: {residentKey: "required", userVerification: "required"},
+      timeout: 60000, extensions: {prf: {eval: {first: SALT}}}}});
+    const x = c.getClientExtensionResults().prf;
+    if (x && x.results && x.results.first) return keyFromPrf(x.results.first);
+    if (x && x.enabled) return passkeyOpen([{type: "public-key", id: c.rawId}]);
+  } catch (e) {}
+  return null;
+}
+async function passkeyOpen(allow) {
+  if (!window.PublicKeyCredential || !navigator.credentials) return null;
+  try {
+    const g = await navigator.credentials.get({publicKey: {challenge: rand(32), userVerification: "required", timeout: 60000, ...(allow ? {allowCredentials: allow} : {}), extensions: {prf: {eval: {first: SALT}}}}});
+    const x = g.getClientExtensionResults().prf;
+    if (x && x.results && x.results.first) return keyFromPrf(x.results.first);
+  } catch (e) {}
+  return null;
+}
+function setMe(sk, name, how, old) { const pk = pkFrom(sk); me = {sk, pk, id: pk, name: name || "", how, ...(old && old.length ? {old} : {})}; store.set("sougo.me", me); keepStorage(); if (S) recompute(); }
+const accountOk = ev => { const l = AS && AS.log.find(x => x.id === ev.id); return !!(l && l.ok); };
 const inApp = /(Twitter|FBAN|FBAV|Instagram|Line\/|LINE|micromessenger)/i.test(navigator.userAgent || "") && !/Safari\/[\d.]+$/.test(navigator.userAgent || "") || /\bwv\b/.test(navigator.userAgent || "");
 
 /* ---------- 出す ---------- */
-async function emit(c) {
+async function emit(c, kind = KIND, tag = TAG) {
   // 同じ秒に続けて出すと順番が入れ替わるので、自分の出来事は必ず前より後の時刻にする
   // すぐに返す出来事（かぎを渡すなど）が、きっかけの出来事と同じ秒にならないよう、直前の出来事より後にする
   const last = events.filter(e => e.pubkey === me.pk).reduce((m, e) => Math.max(m, e.created_at), 0);
   const at = Math.max(nextAt(), last + 1);
-  const ev = await Sig.signEvent({kind: KIND, tags: [["t", TAG]], content: JSON.stringify(c), created_at: at}, me.sk);
+  const ev = await Sig.signEvent({kind, tags: [["t", tag]], content: JSON.stringify(c), created_at: at}, me.sk);
   addEvent(ev); verified.add(ev.id);
   if (mode === "live") { outbox.push(ev); store.set("sougo.outbox", outbox); flush(); }
   recompute();
-  if (mode === "demo") demoReact(c, ev);
+  if (mode === "demo" && kind === KIND) demoReact(c, ev);
   sync();
   return ev;
 }
 
 /* ---------- 非公開：読めるものを開き、引き受けた人にかぎを渡す ---------- */
 const plain = {}, rplain = {}, tried = {};   // 依頼の中身 / レビューの中身（この端末の中だけ）
-async function askKey(r, sk, pk) {
+// かぎの束：いまのかぎと、この端末で前に使っていたかぎ（パスキーに持ち替える前の非公開の中身も開けるように）
+// 中身を包むのは「アカウントの番号」ではなく「実際に署名したかぎ」どうし。決まりが署名したかぎを覚えている（byKey など）
+const myRing = () => [{sk: me.sk, pk: me.pk}, ...(me.old || [])];
+const skIn = (ring, pk) => (ring.find(k => k.pk === pk) || {}).sk || null;
+const curKey = id => (AS && AS.accounts[id] && AS.accounts[id].key) || id;   // その人のいまのかぎ
+async function askKey(r, ring, id) {
   if (r.openKey) return Seal.unhex(r.openKey);
-  if (r.by === pk) return Seal.contentKey(sk, r.n);
-  if (r.shares[pk]) { const o = await Seal.open(await Seal.pairKey(sk, r.by), r.shares[pk], `share:${r.id}:${pk}`); return o && Seal.unhex(o.k); }
+  if (r.by === id) { const sk = skIn(ring, r.byKey || r.by); return sk ? Seal.contentKey(sk, r.n) : null; }
+  if (r.shares[id]) { const sk = skIn(ring, r.takerKey || id) || ring[0].sk; const o = await Seal.open(await Seal.pairKey(sk, (r.shareFrom || {})[id] || r.byKey || r.by), r.shares[id], `share:${r.id}:${id}`); return o && Seal.unhex(o.k); }
   return null;
 }
-async function reviewKey(r, sk, pk) {
+async function reviewKey(r, ring, id) {
   if (r.reviewKey) return Seal.unhex(r.reviewKey);
-  if (r.by !== pk && r.taker !== pk) return null;
-  const o = await Seal.open(await Seal.pairKey(sk, r.by === pk ? r.taker : r.by), r.keyFor, `rk:${r.id}`); return o && Seal.unhex(o.k);
+  if (r.by !== id && r.taker !== id) return null;
+  const from = r.giveKey || r.taker, to = r.giveTo || r.byKey || r.by, [mine, other] = r.by === id ? [to, from] : [from, to];
+  const o = await Seal.open(await Seal.pairKey(skIn(ring, mine) || ring[0].sk, other), r.keyFor, `rk:${r.id}`); return o && Seal.unhex(o.k);
 }
 // 閉じた中身は決まりで確かめられないので、開いたあとで形を確かめる（https 以外のリンクは出さない）
 const cleanAsk = o => ({link: /^https:\/\/\S+$/.test(String(o.link || "")) ? String(o.link).slice(0, 300) : "", ask: String(o.ask || "").slice(0, 400)});
@@ -856,15 +1044,16 @@ async function sync() {
   try {
     for (const r of Object.values(S.reqs)) {
       if (!r.private) continue;
-      const sig = [r.openKey, r.shares[me.pk], r.by === me.pk].join("|");
-      if (!plain[r.id] && tried[r.id] !== sig) { tried[r.id] = sig; const k = await askKey(r, me.sk, me.pk); const o = k && await Seal.open(k, r.sealed, `ask:${r.n}`); if (o) { plain[r.id] = cleanAsk(o); changed = true; } else if (r.shares[me.pk]) { broken.add(r.id); changed = true; } }
-      const rsig = [r.reviewKey, r.keyFor].join("|");
-      if (r.sealedReview && !rplain[r.id] && tried["r" + r.id] !== rsig) { tried["r" + r.id] = rsig; const k = await reviewKey(r, me.sk, me.pk); const o = k && await Seal.open(k, r.sealedReview, `review:${r.id}`); if (o) { rplain[r.id] = cleanReview(o); changed = true; } }
-      // 自分の非公開の依頼を、だれかが引き受けた：その人にだけ中身のかぎを渡す
-      if (r.by === me.pk && r.status === "taken" && !r.shares[r.taker] && !sharing.has(r.id + r.taker)) {
+      const ring = myRing(), sig = [r.openKey, r.shares[me.id], r.by === me.id, me.pk].join("|");
+      if (!plain[r.id] && tried[r.id] !== sig) { tried[r.id] = sig; const k = await askKey(r, ring, me.id); const o = k && await Seal.open(k, r.sealed, `ask:${r.n}`); if (o) { plain[r.id] = cleanAsk(o); changed = true; } else if (r.shares[me.id]) { broken.add(r.id); changed = true; } }
+      const rsig = [r.reviewKey, r.keyFor, me.pk].join("|");
+      if (r.sealedReview && !rplain[r.id] && tried["r" + r.id] !== rsig) { tried["r" + r.id] = rsig; const k = await reviewKey(r, ring, me.id); const o = k && await Seal.open(k, r.sealedReview, `review:${r.id}`); if (o) { rplain[r.id] = cleanReview(o); changed = true; } }
+      // 自分の非公開の依頼を、だれかが引き受けた：その人にだけ中身のかぎを渡す（依頼を出したときのかぎがこの端末にあるときだけ渡せる）
+      const csk = r.by === me.id && skIn(ring, r.byKey || r.by);
+      if (csk && r.status === "taken" && !r.shares[r.taker] && !sharing.has(r.id + r.taker)) {
         sharing.add(r.id + r.taker);
-        const K = await Seal.contentKey(me.sk, r.n);
-        await emit({t: "share", req: r.id, to: r.taker, key: await Seal.seal(await Seal.pairKey(me.sk, r.taker), {k: Seal.hex(K)}, `share:${r.id}:${r.taker}`)});
+        const K = await Seal.contentKey(csk, r.n);
+        await emit({t: "share", req: r.id, to: r.taker, key: await Seal.seal(await Seal.pairKey(me.sk, r.takerKey || r.taker), {k: Seal.hex(K)}, `share:${r.id}:${r.taker}`)});
         changed = true;
       }
     }
@@ -894,7 +1083,8 @@ async function sealedAsk(sk, a) {
 }
 async function sealedGive(sk, r, body, used) {
   const RK = Seal.rand(32);
-  return {t: "give", req: r.id, sealed: await Seal.seal(RK, {body, used}, `review:${r.id}`), keyFor: await Seal.seal(await Seal.pairKey(sk, r.by), {k: Seal.hex(RK)}, `rk:${r.id}`)};
+  const to = curKey(r.by);   // 依頼した人のいまのかぎで包む（かぎを持ち替えていても読めるように）
+  return {t: "give", req: r.id, to, sealed: await Seal.seal(RK, {body, used}, `review:${r.id}`), keyFor: await Seal.seal(await Seal.pairKey(sk, to), {k: Seal.hex(RK)}, `rk:${r.id}`)};
 }
 async function seedDemo() {
   const keys = store.get("sougo.demokeys", null) || DEMO.map(() => Sig.newKey());
@@ -923,17 +1113,17 @@ function demoReact(c, ev) {
   if (c.t === "share" && idx(c.to) >= 0) { const i = idx(c.to); later(3000, async () => dsign(keys[i], await sealedGive(keys[i], S.reqs[c.req], demoBody(S.reqs[c.req].genres), "Claude"))); }
   // 見本の人の非公開の依頼をあなたが引き受けた：持ち主がかぎを渡す
   if (c.t === "take") { const r = S.reqs[c.req], i = r ? idx(r.by) : -1;
-    if (i >= 0 && r.private && r.taker === me.pk) later(1500, async () => dsign(keys[i], {t: "share", req: r.id, to: me.pk, key: await Seal.seal(await Seal.pairKey(keys[i], me.pk), {k: Seal.hex(await Seal.contentKey(keys[i], r.n))}, `share:${r.id}:${me.pk}`)})); }
+    if (i >= 0 && r.private && r.taker === me.id) later(1500, async () => dsign(keys[i], {t: "share", req: r.id, to: me.id, key: await Seal.seal(await Seal.pairKey(keys[i], r.takerKey || me.pk), {k: Seal.hex(await Seal.contentKey(keys[i], r.n))}, `share:${r.id}:${me.id}`)})); }
   if (c.t === "give") { const r = S.reqs[c.req], i = r ? idx(r.by) : -1; if (i >= 0) later(3000, () => dsign(keys[i], {t: "judge", req: c.req, ok: true})); }
   if (c.t === "link") [S.reqs[c.a], S.reqs[c.b]].forEach((r, n) => { const i = r ? idx(r.by) : -1; if (i >= 0) later(1500 + n * 1500, () => dsign(keys[i], {t: "answer", link: ev.id, ok: true})); });
   if (c.t === "made") { const C = S.circles[c.circle]; const i = keys.findIndex((k, j) => C && C.members.includes(pkOf(j))); if (i >= 0) later(2500, () => dsign(keys[i], {t: "confirm", circle: c.circle})); }
-  if (c.t === "reveal") { const r = S.reqs[c.req], i = r && r.taker ? idx(r.taker) : -1; if (i >= 0 && r.sealedReview) later(2000, async () => { const k = await reviewKey(r, keys[i], pkOf(i)); return k && dsign(keys[i], {t: "open-review", req: r.id, key: Seal.hex(k)}); }); }
+  if (c.t === "reveal") { const r = S.reqs[c.req], i = r && r.taker ? idx(r.taker) : -1; if (i >= 0 && r.sealedReview) later(2000, async () => { const k = await reviewKey(r, [{sk: keys[i], pk: pkOf(i)}], pkOf(i)); return k && dsign(keys[i], {t: "open-review", req: r.id, key: Seal.hex(k)}); }); }
 }
 
 /* ---------- 画面の部品 ---------- */
 const nameOf = pk => `${(S.users[pk] && S.users[pk].name) || t("名前なし")}#${pk.slice(0, 4)}`;   // 同じ名前のなりすましと見分けるため、番号の頭4文字をつける
 const starterNow = () => now() <= Rules.R.starterUntil;
-const mine = () => S.users[me.pk] || {tickets: starterNow() ? Rules.R.start : 0, gave: 0, got: 0};
+const mine = () => S.users[me.id] || {tickets: starterNow() ? Rules.R.start : 0, gave: 0, got: 0};
 // 券がなくても出せるか（保険の借りが有効で、待っている依頼がどこにもないとき）
 const canAsk = () => { const tk = mine().tickets; return tk >= 1 || (Rules.R.borrow && tk >= 0 && !Object.values(S.reqs).some(r => r.status === "open")); };
 const shortLink = l => l.replace(/^https:\/\//, "").slice(0, 48);
@@ -970,7 +1160,7 @@ const reviewHtml = r => { const v = revOf(r); if (!v) return `<p class="empty">$
 const item = (act, id, title, sub, pill, go) => `<button type="button" class="item" data-act="${act}" data-id="${id}"><div><b>${esc(title)}</b><span>${esc(sub)}</span></div>${pill ? `<span class="pill ${go ? "go" : ""}">${esc(pill)}</span>` : ""}</button>`;
 
 /* ---------- 保留（この端末の中だけ。だれにも見えない） ---------- */
-const wkey = () => "sougo.watch." + (me ? me.pk : "");
+const wkey = () => "sougo.watch." + (me ? me.id : "");
 const watched = () => new Set(store.get(wkey(), []));
 function setWatch(id, on) { const w = watched(); on ? w.add(id) : w.delete(id); store.set(wkey(), [...w]); }
 const isLive = r => r && !["cancelled", "hidden"].includes(r.status);
@@ -978,24 +1168,24 @@ const watchList = () => [...watched()].map(id => S.reqs[id]).filter(isLive).sort
 
 /* ---------- 一覧 ---------- */
 function candidates() {
-  return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.pk && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.pk && !(r.lapsedBy || []).includes(me.pk)).sort((a, b) => a.at - b.at);
+  return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.id && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.id && !(r.lapsedBy || []).includes(me.id)).sort((a, b) => a.at - b.at);
 }
-const canTake = r => r.status === "open" && r.by !== me.pk && (S.users[r.by] || {}).lastReviewed !== me.pk && !(r.lapsedBy || []).includes(me.pk);
+const canTake = r => r.status === "open" && r.by !== me.id && (S.users[r.by] || {}).lastReviewed !== me.id && !(r.lapsedBy || []).includes(me.id);
 function todo() {
   const out = [];
   for (const r of Object.values(S.reqs)) {
-    if (r.by === me.pk && r.status === "given") out.push(item("judge", r.id, t("レビューが届きました"), titleOf(r), t("読む"), true));
-    if (r.taker === me.pk && r.status === "taken") out.push(item("write", r.id, t(r.private && !r.shares[me.pk] ? "中身を待っています" : "書く番です"), titleOf(r), t("開く"), true));
-    if (r.private && r.revealed && r.taker === me.pk && r.sealedReview && !r.reviewKey && !(store.get("sougo.keepPriv", []).includes(r.id))) out.push(item("view", r.id, t("レビューを公開してよいですか"), titleOf(r), t("開く"), true));
+    if (r.by === me.id && r.status === "given") out.push(item("judge", r.id, t("レビューが届きました"), titleOf(r), t("読む"), true));
+    if (r.taker === me.id && r.status === "taken") out.push(item("write", r.id, t(r.private && !r.shares[me.id] ? "中身を待っています" : "書く番です"), titleOf(r), t("開く"), true));
+    if (r.private && r.revealed && r.taker === me.id && r.sealedReview && !r.reviewKey && !(store.get("sougo.keepPriv", []).includes(r.id))) out.push(item("view", r.id, t("レビューを公開してよいですか"), titleOf(r), t("開く"), true));
   }
-  for (const l of Object.values(S.links)) if (l.status === "pending" && l.owners.includes(me.pk) && !l.yes.includes(me.pk)) out.push(item("answer", l.id, t("つなぐ提案"), t("{n}から", {n: nameOf(l.by)}), t("開く"), true));
-  for (const C of myCircles()) if (C.status === "made" && C.madeBy !== me.pk) out.push(item("circle", C.id, t("「できた」が届きました"), C.what || shortLink(C.url), t("開く"), true));
+  for (const l of Object.values(S.links)) if (l.status === "pending" && l.owners.includes(me.id) && !l.yes.includes(me.id)) out.push(item("answer", l.id, t("つなぐ提案"), t("{n}から", {n: nameOf(l.by)}), t("開く"), true));
+  for (const C of myCircles()) if (C.status === "made" && C.madeBy !== me.id) out.push(item("circle", C.id, t("「できた」が届きました"), C.what || shortLink(C.url), t("開く"), true));
   return out;
 }
 const inCircle = id => Object.values(S.circles).some(C => C.reqs.includes(id));
-function myCircles() { return Object.values(S.circles).filter(C => C.members.includes(me.pk)).sort((a, b) => b.at - a.at); }
+function myCircles() { return Object.values(S.circles).filter(C => C.members.includes(me.id)).sort((a, b) => b.at - a.at); }
 const CST = {active: "進んでいます", made: "確認待ち", complete: "完結"};
-const myAsks = () => Object.values(S.reqs).filter(r => r.by === me.pk && r.status !== "cancelled").sort((a, b) => b.at - a.at).slice(0, 6);
+const myAsks = () => Object.values(S.reqs).filter(r => r.by === me.id && r.status !== "cancelled").sort((a, b) => b.at - a.at).slice(0, 6);
 
 /* ---------- トップ ---------- */
 function render() {
@@ -1004,14 +1194,18 @@ function render() {
     m.innerHTML = `<p class="lead">${t("1件見てあげると、<br>1件見てもらえる。")}</p>
       <div style="margin-top:22px;display:grid;gap:12px"><input id="nm" maxlength="24" placeholder="${t("呼び名")}" aria-label="${t("呼び名")}" autocomplete="off">
       <button type="button" class="primary wide" data-act="start">${t("はじめる")}</button>
-      <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
+      <p class="small" style="margin:0">${t("登録もパスワードもいりません。指紋や顔（パスキー）で守ります。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
       <p class="small" id="st-msg" style="margin:0;color:var(--warm)" role="alert"></p>
       ${inApp ? `<p class="small" style="margin:0;color:var(--warm)">${t("アプリの中のブラウザでは、閉じると記録が消えることがあります。Safari や Chrome で開いてください。")}</p>` : ""}
-      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link acc" data-act="show-key">${t("前に使っていたかぎで続ける")}</button></div>
+      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link acc" data-act="pk-open">${t("パスキーで開く")}</button><button type="button" class="link acc" data-act="show-key">${t("前に使っていたかぎで続ける")}</button></div>
       <div id="st-key" class="job" hidden><span class="small">${t("「記録とかぎ」で書き写したかぎ（64文字）を入れると、券も記録もそのまま続きます。")}</span><input id="st-imp" placeholder="${t("かぎ（64文字）")}" aria-label="${t("かぎ（64文字）")}" autocomplete="off"><button type="button" data-act="start-import">${t("このかぎで続ける")}</button></div></div>`;
     return;
   }
   if (!S) { m.innerHTML = `<p class="empty">${t("読み込んでいます…")}</p>`; return; }
+  // このかぎは持ち替えられたか、取り戻された（ほかの端末やパスキーで使っている）
+  if (me.retired) { m.innerHTML = `<div class="job"><b>${t("このかぎは、もう使われていません")}</b><span class="small">${t("パスキーに持ち替えたか、取り戻されたアカウントのかぎです。パスキーで開いてください。")}</span>
+      <p class="small" id="st-msg" style="margin:0;color:var(--warm)" role="alert"></p>
+      <div class="row" style="justify-content:flex-start"><button type="button" class="primary" data-act="pk-open">${t("パスキーで開く")}</button><button type="button" class="link" data-act="forget">${t("はじめの画面へ")}</button></div></div>`; return; }
   m.innerHTML = `<div class="wallet" id="wallet"><span class="who">${esc(me.name)}</span><span class="tk" id="tk">${tixHtml()}</span></div>
     <div id="note">${noteHtml()}</div>
     <div id="pulse">${pulseHtml()}</div>
@@ -1092,7 +1286,7 @@ function refreshPanel() {
   // 開いている画面の中身が古くなったときだけ描き直す（入力中の欄には触らない）
   const r = S.reqs[openId];
   if (openKind === "write" && r) {
-    if (r.taker !== me.pk) { const m = $("#w-msg"); if (m && !m.dataset.lost) { m.dataset.lost = 1; m.textContent = t("この依頼は期限が過ぎたか、ほかの人に移りました。"); } }
+    if (r.taker !== me.id) { const m = $("#w-msg"); if (m && !m.dataset.lost) { m.dataset.lost = 1; m.textContent = t("この依頼は期限が過ぎたか、ほかの人に移りました。"); } }
     else if ($("#w-wait") && (askOf(r) || broken.has(r.id))) $("#pbody").innerHTML = writeHtml(r);
   }
   if ((openKind === "mine" || openKind === "judge") && r) $("#pbody").innerHTML = openKind === "judge" && r.status === "given" ? judgeHtml(r) : mineHtml(r);
@@ -1157,25 +1351,25 @@ function mineHtml(r) {
     ${priv && isLive(r) ? `<button type="button" data-act="reveal" data-id="${r.id}">${t("公開する")}</button><p class="small" style="margin:0">${t("公開すると、中身をだれでも読めるようになります。元には戻せません。")}</p>` : ""}`;
 }
 function viewHtml(r) {
-  const on = watched().has(r.id), ask = r.private && r.revealed && r.taker === me.pk && r.sealedReview && !r.reviewKey;
+  const on = watched().has(r.id), ask = r.private && r.revealed && r.taker === me.id && r.sealedReview && !r.reviewKey;
   return `<h2>${t("依頼")}</h2>${reqCard(r, {state: true, time: r.status === "open", judge: r.status === "open"})}
-    ${(r.status === "done" || r.status === "given") && revOf(r) && (r.taker === me.pk || !r.private || r.reviewKey) ? `<div class="job">${reviewHtml(r)}</div>` : ""}
+    ${(r.status === "done" || r.status === "given") && revOf(r) && (r.taker === me.id || !r.private || r.reviewKey) ? `<div class="job">${reviewHtml(r)}</div>` : ""}
     ${ask ? `<div class="job"><b>${t("レビューも公開してよいですか")}</b><span class="small">${t("依頼した人が中身を公開しました。あなたのレビューは、あなたが許したときだけ公開されます。")}</span>
       <div class="two" style="margin-top:0"><button type="button" data-act="keep-review" data-id="${r.id}">${t("公開しない")}</button><button type="button" class="primary" data-act="open-review" data-id="${r.id}">${t("公開してよい")}</button></div></div>` : ""}
     ${canTake(r) ? `<button type="button" class="primary wide" data-act="take" data-id="${r.id}">${t("引き受ける")}</button>` : ""}
-    <div class="row">${r.by !== me.pk ? `<button type="button" class="link" data-act="${on ? "unwatch" : "watch"}" data-id="${r.id}">${t(on ? "保留を外す" : "保留")}</button>` : ""}${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">${t("つなぐ")}</button>` : ""}</div>`;
+    <div class="row">${r.by !== me.id ? `<button type="button" class="link" data-act="${on ? "unwatch" : "watch"}" data-id="${r.id}">${t(on ? "保留を外す" : "保留")}</button>` : ""}${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">${t("つなぐ")}</button>` : ""}</div>`;
 }
 
 /* ---------- つなぐ・集まり ---------- */
 let linkPick = null;
 // 2つのうち少なくとも1つは、自分がレビューを届けた依頼
 function linkables(A) {
-  const w = watched(), knowA = Rules.seen(A, me.pk);
+  const w = watched(), knowA = Rules.seen(A, me.id);
   const inSame = id => Object.values(S.circles).some(C => C.reqs.includes(A.id) && C.reqs.includes(id));
-  return Object.values(S.reqs).filter(r => r.id !== A.id && isLive(r) && r.by !== A.by && r.by !== me.pk && A.by !== me.pk && !inSame(r.id) && (knowA || Rules.seen(r, me.pk)))
+  return Object.values(S.reqs).filter(r => r.id !== A.id && isLive(r) && r.by !== A.by && r.by !== me.id && A.by !== me.id && !inSame(r.id) && (knowA || Rules.seen(r, me.id)))
     .sort((a, b) => (w.has(b.id) - w.has(a.id)) || b.at - a.at).filter((r, i) => i < 15 || w.has(r.id));
 }
-const canLink = r => (mine().helped || 0) >= 1 && r.by !== me.pk && linkables(r).length > 0;
+const canLink = r => (mine().helped || 0) >= 1 && r.by !== me.id && linkables(r).length > 0;
 const reqMini = r => `<div class="job" style="gap:4px"><div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}<span class="small">${esc(nameOf(r.by))}</span></div><div>${esc(titleOf(r))}</div>${askOf(r) && askOf(r).link ? `<a href="${esc(askOf(r).link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(askOf(r).link))}</a>` : ""}</div>`;
 const wPill = r => watched().has(r.id) ? `<span class="pill">${t("保留中")}</span>` : "";
 function linkHtml(A) {
@@ -1202,7 +1396,7 @@ function circleHtml(C) {
     <div class="job"><b>${t("貢献の記録")}</b>${rec.map(x => `<div class="hist"><span>${esc(nameOf(x.pk))}</span><span>${[x.asked && t("依頼 {n}", {n: x.asked}), x.reviewed && t("見た {n}", {n: x.reviewed}), x.linked && t("つないだ {n}", {n: x.linked}), x.made && t("できた")].filter(Boolean).join(SEP)}</span></div>`).join("")}</div>
     ${C.status === "active" ? `<div class="job"><b>${t("形になったら")}</b><input id="m-url" inputmode="url" placeholder="${t("できたもののリンク https://")}" aria-label="${t("できたもののリンク")}" autocomplete="off"><input id="m-what" maxlength="300" placeholder="${t("ひとこと")}" aria-label="${t("ひとこと")}" autocomplete="off"><button type="button" class="primary wide" data-act="made" data-id="${C.id}">${t("できた")}</button><span class="small">${t("ほかの仲間が「確かに」と押すと完結します。")}</span></div>` : ""}
     ${C.status !== "active" ? `<div class="job"><b>${t("できたもの")}</b><a href="${esc(C.url)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(C.url))}</a>${C.what ? `<div>${esc(C.what)}</div>` : ""}<span class="small">${esc(nameOf(C.madeBy))}${C.confirmedBy ? SEP + esc(t("確かめた人 {n}", {n: nameOf(C.confirmedBy)})) : ""}</span>
-      ${C.status === "made" && C.madeBy !== me.pk ? `<button type="button" class="primary wide" data-act="confirm" data-id="${C.id}">${t("確かに")}</button>` : ""}</div>` : ""}`;
+      ${C.status === "made" && C.madeBy !== me.id ? `<button type="button" class="primary wide" data-act="confirm" data-id="${C.id}">${t("確かに")}</button>` : ""}</div>` : ""}`;
 }
 
 /* ---------- しくみ・記録 ---------- */
@@ -1219,6 +1413,7 @@ const HOW = [
   ["つなぐ", "「役に立った」をもらったことのある人は、合いそうな2つの依頼をつなげます。1つは自分がレビューを届けた依頼です。両方の持ち主が受けると集まりができ、つないだ人に券が1枚入ります。"],
   ["集まりと、できた", "形になったら仲間が「できた」を出し、ほかの仲間が「確かに」と押すと完結します。だれが依頼し、見て、つなぎ、形にしたかが残ります。"],
   ["記録", "出来事はすべて署名つきで残り、毎日ビットコインに刻まれます（OpenTimestamps）。証明するのは「その時点で存在したこと」だけで、権利を与えるものではありません。"],
+  ["パスキー", "指紋や顔でかぎを作り直すので、書き写さなくても、同期しているほかの端末で「パスキーで開く」から開けます。仮想市場・jeni と同じアカウントです。使えない端末では、かぎを端末の中に置きます。"],
   ["安全のために", "見るときは、ウォレットをつながない・署名しない・かぎを入れない。危ない依頼は、実績のある2人が知らせると消えます（非公開は中身を受け取った人どうし）。ひどいレビューには券が入りません。直前に見てくれた人の依頼は回ってきません。"],
   ["使わないこと", "特許や独占的な権利がほしいもの、ストアの星や推薦文の交換、お金のやり取り（券の売り買いも）。"],
   ["決まりを変えるとき", "変えた日と中身を、だれでも読める変更記録（CHANGES.md）に残します。"],
@@ -1229,16 +1424,17 @@ const howHtml = () => `<h2>${t("しくみ")}</h2><div class="how" style="display
 let histN = 50;
 const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した", flag: "知らせた", link: "つないだ", answer: "つなぎに返事", made: "できた", confirm: "確かに", share: "中身を渡した", reveal: "公開した", "open-review": "レビューを公開", gift: "券を贈った"};
 function meHtml() {
-  const all = S.log.filter(l => l.pk === me.pk).reverse(), list = all.slice(0, histN), u = mine();
+  const all = S.log.filter(l => l.pk === me.id).reverse(), list = all.slice(0, histN), u = mine();
   return `<h2>${t("記録とかぎ")}</h2>
     <div class="job"><span>${t("見てあげた {g}・役に立った {h}・見てもらった {r}", {g: u.gave || 0, h: u.helped || 0, r: u.got || 0})}</span>${u.judged ? `<span class="small">${t("役に立ったを返した割合 {n}%", {n: Math.round(100 * u.judgedOk / u.judged)})}</span>` : ""}</div>
-    <div class="job"><b>${t("かぎ")}</b><span class="small">${t("記録も非公開の中身も、このかぎで開きます。書き写して保管してください。人に見せると、なりすまされます。")}</span>
+    ${me.how === "passkey" ? `<div class="job"><b>${t("パスキーで守られています")}</b><span class="small">${t("ほかの端末では、はじめの画面の「パスキーで開く」から開けます（同じ Apple や Google のアカウントで同期している端末）。仮想市場でも同じアカウントです。")}</span></div>` : `<div class="job"><b>${t("パスキーで守る")}</b><span class="small">${t("かぎを書き写さなくても、指紋や顔で、ほかの端末からも開けるようになります。番号・券・記録はそのままです。")}</span><p class="small" id="pk-msg" style="margin:0;color:var(--warm)" role="alert"></p><button type="button" data-act="protect">${t("パスキーで守る")}</button></div>`}
+    <div class="job"><b>${t("かぎ")}</b><span class="small">${t(me.how === "passkey" ? "パスキーから作られるかぎです。パスキーが使えない端末で開くときに使えます。人に見せると、なりすまされます。" : "記録も非公開の中身も、このかぎで開きます。書き写して保管してください。人に見せると、なりすまされます。")}</span>
       <details ontoggle="if(this.open){try{localStorage.setItem('sougo.backed','1')}catch(e){}}"><summary class="small" style="cursor:pointer">${t("表示する")}</summary><p class="mono" style="margin:8px 0 0">${me.sk}</p></details>
       <input id="imp" placeholder="${t("別の端末のかぎ（64文字）")}" aria-label="${t("別の端末のかぎ")}" autocomplete="off"><button type="button" data-act="import">${t("このかぎで続ける")}</button></div>
     <div><h3 style="margin-top:0">${t("あなたの出来事（{n}）", {n: all.length})}</h3>${list.length ? list.map(l => { const q = l.req && S.reqs[l.req];
-        return `<div class="hist" ${q ? `data-act="${q.by === me.pk ? "mine" : "view"}" data-id="${q.id}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span>${T[l.t] ? t(T[l.t]) : esc(l.t)}${l.ok ? "" : t("（無効）")}${q ? `<br><span class="small">${esc(titleOf(q).slice(0, 24))}</span>` : ""}</span><span class="small" style="white-space:nowrap">${new Date(l.at * 1000).toLocaleString(LANG === "ja" ? "ja-JP" : "en-US", {dateStyle: "short", timeStyle: "short"})}</span></div>`; }).join("") : `<p class="empty">${t("まだありません")}</p>`}
+        return `<div class="hist" ${q ? `data-act="${q.by === me.id ? "mine" : "view"}" data-id="${q.id}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span>${T[l.t] ? t(T[l.t]) : esc(l.t)}${l.ok ? "" : t("（無効）")}${q ? `<br><span class="small">${esc(titleOf(q).slice(0, 24))}</span>` : ""}</span><span class="small" style="white-space:nowrap">${new Date(l.at * 1000).toLocaleString(LANG === "ja" ? "ja-JP" : "en-US", {dateStyle: "short", timeStyle: "short"})}</span></div>`; }).join("") : `<p class="empty">${t("まだありません")}</p>`}
       ${all.length > histN ? `<button type="button" class="link" data-act="more">${t("もっと前（{n}）", {n: all.length - histN})}</button>` : ""}</div>
-    <div class="job"><b>${t("番号")}</b><span class="small">${t("紹介してくれる人に伝えると、券を贈ってもらえます。見せても大丈夫です。")}</span><p class="mono" style="margin:0" id="my-pk">${me.pk}</p><button type="button" data-act="copy-pk">${t("番号を写す")}</button></div>
+    <div class="job"><b>${t("番号")}</b><span class="small">${t("紹介してくれる人に伝えると、券を贈ってもらえます。見せても大丈夫です。")}</span><p class="mono" style="margin:0" id="my-pk">${me.id}</p><button type="button" data-act="copy-pk">${t("番号を写す")}</button></div>
     ${(u.helped || 0) >= 1 ? `<div class="job"><b>${t("券を贈る")}</b><input id="g-to" placeholder="${t("相手の番号（64文字）")}" aria-label="${t("相手の番号")}" autocomplete="off"><p class="small" id="g-msg" style="margin:0;color:var(--warm)" role="alert"></p><button type="button" data-act="gift" ${u.tickets >= 1 ? "" : "disabled"}>${t("贈る（券1枚）")}</button></div>` : ""}`;
 }
 
@@ -1265,16 +1461,29 @@ async function act(a, id) {
     if (S && Object.values(S.users).some(u => u.name === name) && $("#nm").dataset.ok !== name) {
       $("#nm").dataset.ok = name; $("#st-msg").textContent = t("「{n}」という呼び名の人がもういます。前に使っていた本人なら、下の「かぎで続ける」から。別の人なら、もう一度「はじめる」を押してください。", {n: name}); $("#st-key").hidden = false; return;
     }
-    const sk = Sig.newKey(); me = {sk, pk: Sig.hex(Sig.pubkey(Sig.unhex(sk))), name}; store.set("sougo.me", me); keepStorage();
+    // パスキーが使えればパスキーで（ほかの端末でも開ける）。使えなければ、この端末の中だけのかぎで始める
+    $("#st-msg").textContent = ""; $$("#main button").forEach(b => b.disabled = true);
+    const pkey = await passkeyNew(name);
+    setMe(pkey || Sig.newKey(), name, pkey ? "passkey" : "device");
+    if (pkey && !(AS && AS.byKey[me.pk])) await emit({t: "open", display: name}, Account.KIND, Account.TAG);
     await emit({t: "hello", name}); render();
     return;
   }
+  // パスキーで開く（ほかの端末で始めた人、仮想市場でアカウントを作った人）
+  if (a === "pk-open") {
+    const k = await passkeyOpen();
+    if (!k) { $("#st-msg").textContent = t("パスキーで開けませんでした。この端末やブラウザでは使えないことがあります。そのときは「前に使っていたかぎで続ける」から。"); return; }
+    const pk = pkFrom(k), A = AS && AS.accounts[AS.byKey[pk]];
+    setMe(k, (A && S && S.users[A.id] && S.users[A.id].name) || (A && A.display) || "", "passkey"); render(); return sync();
+  }
+  if (a === "forget") { if (me) { const old = store.get("sougo.oldkeys", []); old.push({sk: me.sk, pk: me.pk}); store.set("sougo.oldkeys", old.slice(-10)); }
+    me = null; store.set("sougo.me", null); return render(); }
   if (a === "show-key") { $("#st-key").hidden = false; return $("#st-imp").focus(); }
   if (a === "start-import") {
     const k = ($("#st-imp").value || "").trim().toLowerCase(); let pk = null;
     try { if (/^[0-9a-f]{64}$/.test(k)) pk = Sig.hex(Sig.pubkey(Sig.unhex(k))); } catch (e) {}
     if (!pk) { $("#st-imp").style.borderColor = "var(--warm)"; return $("#st-imp").focus(); }
-    me = {sk: k, pk, name: S && S.users[pk] && S.users[pk].name || ""}; store.set("sougo.me", me); keepStorage(); render(); return sync();
+    setMe(k, S && S.users[pk] && S.users[pk].name || "", "device"); render(); return sync();
   }
   if (a === "demo" || a === "undemo") { location.hash = a === "demo" ? "#demo" : ""; return location.reload(); }
   if (a === "dismiss") { note = null; $("#note").innerHTML = ""; return; }
@@ -1305,7 +1514,7 @@ async function act(a, id) {
     closePanel(); note = accepted(ev) ? {m: t("依頼を出しました")} : {k: "warn", m: t("出せませんでした（券がありません）")}; return render();
   }
   if (a === "take" && r) { await emit({t: "take", req: id}); const rr = S.reqs[id];
-    if (rr.taker !== me.pk) { note = {k: "warn", m: t("いまは引き受けられません（先に引き受けた人がいるか、同時に持てる数を超えています）")}; render(); return openPanel("give", null, giveHtml()); }
+    if (rr.taker !== me.id) { note = {k: "warn", m: t("いまは引き受けられません（先に引き受けた人がいるか、同時に持てる数を超えています）")}; render(); return openPanel("give", null, giveHtml()); }
     render(); return openPanel("write", id, writeHtml(rr)); }
   if (a === "release" && r) { await emit({t: "release", req: id}); closePanel(); note = {m: t("手放しました")}; return render(); }
   if (a === "send-give" && r) {
@@ -1319,8 +1528,9 @@ async function act(a, id) {
   }
   if ((a === "judge-ok" || a === "judge-no") && r) { await emit({t: "judge", req: id, ok: a === "judge-ok"}); closePanel(); note = {m: t("返事をしました")}; return render(); }
   if (a === "cancel" && r) { await emit({t: "cancel", req: id}); closePanel(); note = {m: t(inCircle(id) ? "取り下げました" : "取り下げました。券が戻りました")}; return render(); }
-  if (a === "reveal" && r) { await emit({t: "reveal", req: id, key: Seal.hex(await Seal.contentKey(me.sk, r.n))}); note = {m: t("公開しました")}; render(); return openPanel("mine", id, mineHtml(S.reqs[id])); }
-  if (a === "open-review" && r) { const k = await reviewKey(r, me.sk, me.pk); if (k) await emit({t: "open-review", req: id, key: Seal.hex(k)}); render(); return openPanel("view", id, viewHtml(S.reqs[id])); }
+  if (a === "reveal" && r) { const ck = await askKey(r, myRing(), me.id); if (!ck) { note = {k: "warn", m: t("この依頼を出したときのかぎが、この端末にありません")}; return render(); }
+    await emit({t: "reveal", req: id, key: Seal.hex(ck)}); note = {m: t("公開しました")}; render(); return openPanel("mine", id, mineHtml(S.reqs[id])); }
+  if (a === "open-review" && r) { const k = await reviewKey(r, myRing(), me.id); if (k) await emit({t: "open-review", req: id, key: Seal.hex(k)}); render(); return openPanel("view", id, viewHtml(S.reqs[id])); }
   if (a === "keep-review" && r) { store.set("sougo.keepPriv", [...store.get("sougo.keepPriv", []), id]); closePanel(); return render(); }
   const L = id && S.links[id], C = id && S.circles[id];
   if (a === "linkfrom" && r) { linkPick = null; return openPanel("link", id, linkHtml(r)); }
@@ -1334,12 +1544,12 @@ async function act(a, id) {
   if (a === "made" && C) { const url = $("#m-url").value.trim(); if (!/^https:\/\/\S+$/.test(url)) { $("#m-url").style.borderColor = "var(--warm)"; return $("#m-url").focus(); }
     await emit({t: "made", circle: id, url, what: ($("#m-what").value || "").trim()}); render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
   if (a === "confirm" && C) { await emit({t: "confirm", circle: id}); note = {m: t("完結しました")}; render(); return openPanel("circle", id, circleHtml(S.circles[id])); }
-  if (a === "flag-ask" && r) { await emit({t: "flag", what: "ask", req: id}); skip(id); note = {m: t(r.taker === me.pk ? "知らせて、手放しました" : "知らせました")}; render(); return openPanel("give", null, giveHtml()); }
+  if (a === "flag-ask" && r) { await emit({t: "flag", what: "ask", req: id}); skip(id); note = {m: t(r.taker === me.id ? "知らせて、手放しました" : "知らせました")}; render(); return openPanel("give", null, giveHtml()); }
   if (a === "flag-review" && r) { await emit({t: "flag", what: "review", req: id}); closePanel(); note = {m: t("知らせました。書いた人に券は入らず、あなたに半券が戻りました")}; return render(); }
-  if (a === "copy-pk") { try { await navigator.clipboard.writeText(me.pk); } catch (e) { const r0 = document.createRange(); r0.selectNodeContents($("#my-pk")); getSelection().removeAllRanges(); getSelection().addRange(r0); } note = {m: t("番号を写しました")}; $("#note") && ($("#note").innerHTML = noteHtml()); return; }
+  if (a === "copy-pk") { try { await navigator.clipboard.writeText(me.id); } catch (e) { const r0 = document.createRange(); r0.selectNodeContents($("#my-pk")); getSelection().removeAllRanges(); getSelection().addRange(r0); } note = {m: t("番号を写しました")}; $("#note") && ($("#note").innerHTML = noteHtml()); return; }
   if (a === "gift") {
     const to = ($("#g-to").value || "").trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(to) || to === me.pk) { $("#g-msg").textContent = t("相手の番号（64文字）を入れてください"); return $("#g-to").focus(); }
+    if (!/^[0-9a-f]{64}$/.test(to) || to === me.id) { $("#g-msg").textContent = t("相手の番号（64文字）を入れてください"); return $("#g-to").focus(); }
     if ($("#g-to").dataset.ok !== to) { $("#g-to").dataset.ok = to; $("#g-msg").textContent = t("{n}に贈ります。もう一度押すと贈ります。", {n: S.users[to] ? nameOf(to) : t("まだ始めていない人")}); return; }
     const ev = await emit({t: "gift", to}); closePanel(); note = accepted(ev) ? {m: t("券を1枚贈りました")} : {k: "warn", m: t("贈れませんでした")}; return render();
   }
@@ -1347,7 +1557,21 @@ async function act(a, id) {
     const k = ($("#imp").value || "").trim().toLowerCase(); let pk = null;
     try { if (/^[0-9a-f]{64}$/.test(k)) pk = Sig.hex(Sig.pubkey(Sig.unhex(k))); } catch (e) {}
     if (!pk) { $("#imp").style.borderColor = "var(--warm)"; return; }
-    me = {sk: k, pk, name: nameOf(pk).replace(/#.*$/, "")}; store.set("sougo.me", me); keepStorage(); closePanel(); render(); return sync();
+    setMe(k, nameOf(pk).replace(/#.*$/, ""), "device"); closePanel(); render(); return sync();
+  }
+  // パスキーで守る：いまのかぎのアカウントを作り（なければ）、パスキーのかぎに持ち替える。番号・券・記録はそのまま
+  if (a === "protect") {
+    const msg = $("#pk-msg"); msg.textContent = "";
+    const k = await passkeyNew(me.name || "sougo-review");
+    if (!k) { msg.textContent = t("この端末やブラウザでは、パスキーが使えませんでした。かぎを書き写して保管してください。"); return; }
+    const npk = pkFrom(k);
+    if (AS.byKey[npk]) { msg.textContent = t("このパスキーは、もう別のアカウントで使われています。"); return; }
+    if (!AS.byKey[me.pk]) { const ev = await emit({t: "open", display: me.name}, Account.KIND, Account.TAG); if (!accountOk(ev)) { msg.textContent = t("持ち替えられませんでした"); return; } }
+    const ev = await emit({t: "rotate", to: npk}, Account.KIND, Account.TAG);
+    if (!accountOk(ev)) { msg.textContent = t("持ち替えられませんでした"); return; }
+    const id = me.id; setMe(k, me.name, "passkey", [{sk: me.sk, pk: me.pk}, ...(me.old || [])]); recompute();
+    note = {m: t("パスキーで守りました。ほかの端末では、はじめの画面の「パスキーで開く」から開けます")}; render(); sync();
+    return openPanel("me", null, meHtml());
   }
 }
 let pendingHello = null;
@@ -1369,7 +1593,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.matches && e.target.matches("[role=button][data-act]")) act(e.target.dataset.act, e.target.dataset.id);
 });
 setInterval(() => { if (S) { recompute(); live(); sync(); } if (mode === "live") flush(); netStatus(); }, 5000);
-window.__sr = {act, get S() { return S; }, get me() { return me; }, get mode() { return mode; }, toDemo, plain, rplain, cleanAsk, cleanReview};
+window.__sr = {act, get S() { return S; }, get AS() { return AS; }, get me() { return me; }, get mode() { return mode; }, toDemo, plain, rplain, cleanAsk, cleanReview};
 
 render();
 if (/demo/.test(location.hash)) toDemo(); else { toLive(); connect(); }

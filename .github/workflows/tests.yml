@@ -22,3 +22,5 @@ jobs:
       - run: npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
       - name: 画面を操作して確かめる（スマホとパソコンの幅）
         run: node tests/app.e2e.js 400 && node tests/app.e2e.js 1200 && node tests/app.en.e2e.js 400 && node tests/app.live.e2e.js
+      - name: パスキーと共通のアカウント（試験用の認証器）
+        run: node tests/passkey.e2e.js

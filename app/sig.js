@@ -96,6 +96,10 @@
     const Pp = liftX(num(unhex(pkHex))); if (!Pp) throw new Error("bad pubkey");
     return n32(affine(mul(Pp, d))[0]);
   }
-  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex, shared, sha};
+  // 公開鍵の点（x と y）。チェーン（Base など）のアドレスを作るときに使う
+  function pubXY(skHex) { const d = num(unhex(skHex)); if (d <= 0n || d >= N) throw new Error("bad key"); const [x, y] = affine(mulG(d)); return cat(n32(x), n32(y)); }
+  // 32バイトを、かぎとして使える数にする（0 と N 以上を避ける）
+  function toKey(bytes) { const d = mod(num(bytes), N - 1n) + 1n; return hex(n32(d)); }
+  const api = {sign, verify, pubkey, signEvent, verifyEvent, eventId, newKey, hex, unhex, shared, sha, pubXY, toKey};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sig = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
