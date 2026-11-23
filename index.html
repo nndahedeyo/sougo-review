@@ -275,6 +275,8 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
     {id: "text", name: "文章", min: 30},
     {id: "look", name: "見た目", min: 20},
     {id: "play", name: "遊び心地", min: 30},   // ゲーム：面白さ・難しさ・操作の気持ちよさ・続けたくなるか
+    {id: "media", name: "見ごたえ・聴きごたえ", min: 20},   // 動画・音楽・音声：最後まで見たく（聴きたく）なるか、どこで離れたくなったか
+    {id: "idea", name: "アイデア・企画", min: 20},          // 作る前の案・企画書：だれが使いそうか、分かりにくい所、似たものとの違い
   ];
   // 依頼する人の希望（だれに見てほしいか）。届いたレビューの券の数は、だれが書いても同じ1枚
   const WANTS = ["any", "human", "ai"];
@@ -634,6 +636,8 @@ var EN = {
   "文章": "Writing",
   "見た目": "Look",
   "遊び心地": "Gameplay",
+  "見ごたえ・聴きごたえ": "Watch & listen",
+  "アイデア・企画": "Ideas & plans",
   "見た環境・範囲": "Where & what you checked",
   "{g}で気になった所": "Issues: {g}",
   "よかった所": "What was good",
@@ -877,6 +881,8 @@ var EN = {
   "パスキーで開けませんでした": "Couldn't open with a passkey",
   "指紋や顔で、ほかの端末からも開けるようになります。": "Open it from your other devices with your fingerprint or face.",
   "パスキーで守りました": "Protected with a passkey",
+  "見てもらえるもの": "What you can ask for",
+  "アプリ・ゲーム・コード・文章・見た目のほか、動画や音楽、作る前のアイデアや企画まで。リンクで見せられるものなら何でも頼めます。": "Apps, games, code, writing and design, plus videos, music, and ideas or plans before you build. Anything you can share with a link.",
 };
 
 </script>
@@ -1098,8 +1104,8 @@ async function seedDemo() {
   }
 }
 const DEMO_TEXT = LANG === "ja"
-  ? {env: "iPhone 15 / Safari で確かめました。", "g:use": "最初のボタンの意味が分からず、少し止まりました。", "g:code": "通信が切れたときの再試行がありません。", "g:text": "専門用語が3つ、説明なしで出てきます。", "g:look": "文字が小さく、灰色が背景に溶けて読みにくい所があります。", "g:play": "ステージ1の後半で急に難しくなり、3回やり直しました。", good: "色と文字の大きさが見やすいです。", fix: "最初の画面に一言の説明があると迷いません。"}
-  : {env: "Checked on iPhone 15 / Safari.", "g:use": "I paused at the first button; its meaning was unclear.", "g:code": "There is no retry when the connection drops.", "g:text": "Three technical terms appear without explanation.", "g:look": "Some gray text blends into the background and is hard to read.", "g:play": "Stage 1 suddenly gets hard near the end; I retried three times.", good: "Colors and text size are easy to read.", fix: "A one-line hint on the first screen would help."};
+  ? {env: "iPhone 15 / Safari で確かめました。", "g:use": "最初のボタンの意味が分からず、少し止まりました。", "g:code": "通信が切れたときの再試行がありません。", "g:text": "専門用語が3つ、説明なしで出てきます。", "g:look": "文字が小さく、灰色が背景に溶けて読みにくい所があります。", "g:play": "ステージ1の後半で急に難しくなり、3回やり直しました。", "g:media": "2分ごろの説明が長く、そこで止めたくなりました。", "g:idea": "だれが一番困っているのかが、最初の一文から読み取れませんでした。", good: "色と文字の大きさが見やすいです。", fix: "最初の画面に一言の説明があると迷いません。"}
+  : {env: "Checked on iPhone 15 / Safari.", "g:use": "I paused at the first button; its meaning was unclear.", "g:code": "There is no retry when the connection drops.", "g:text": "Three technical terms appear without explanation.", "g:look": "Some gray text blends into the background and is hard to read.", "g:play": "Stage 1 suddenly gets hard near the end; I retried three times.", "g:media": "The explanation around 2:00 drags; that's where I wanted to stop.", "g:idea": "From the first sentence I couldn't tell who needs this most.", good: "Colors and text size are easy to read.", fix: "A one-line hint on the first screen would help."};
 const demoBody = gs => { const b = {}; for (const f of Rules.fields(gs)) b[f] = DEMO_TEXT[f] || DEMO_TEXT["g:use"]; return b; };
 function demoReact(c, ev) {
   const keys = store.get("sougo.demokeys", []), pkOf = j => Sig.hex(Sig.pubkey(Sig.unhex(keys[j])));
@@ -1402,6 +1408,7 @@ function circleHtml(C) {
 
 /* ---------- しくみ・記録 ---------- */
 const HOW = [
+  ["見てもらえるもの", "アプリ・ゲーム・コード・文章・見た目のほか、動画や音楽、作る前のアイデアや企画まで。リンクで見せられるものなら何でも頼めます。"],
   ["券", "見てもらうときに1枚使います。「役に立った」なら書いた人に券1枚。「いまひとつ」なら書いた人と依頼した人に半券ずつ（2枚で1枚）。危ない・ひどいレビューなら、書いた人には何もなく、依頼した人に半券。"],
   ["始め方", "2026年のうちに始めた人には、最初の券が1枚あります。2027年からは、だれかを見てあげて券をもらうか、紹介してくれる人から券を贈ってもらって始めます。"],
   ["紹介", "「役に立った」をもらったことのある人は、自分の券を1枚、ほかの人に贈れます。相手の番号（「記録とかぎ」にあります）が要ります。"],

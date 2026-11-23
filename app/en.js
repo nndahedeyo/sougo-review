@@ -71,6 +71,8 @@ var EN = {
   "文章": "Writing",
   "見た目": "Look",
   "遊び心地": "Gameplay",
+  "見ごたえ・聴きごたえ": "Watch & listen",
+  "アイデア・企画": "Ideas & plans",
   "見た環境・範囲": "Where & what you checked",
   "{g}で気になった所": "Issues: {g}",
   "よかった所": "What was good",
@@ -314,4 +316,6 @@ var EN = {
   "パスキーで開けませんでした": "Couldn't open with a passkey",
   "指紋や顔で、ほかの端末からも開けるようになります。": "Open it from your other devices with your fingerprint or face.",
   "パスキーで守りました": "Protected with a passkey",
+  "見てもらえるもの": "What you can ask for",
+  "アプリ・ゲーム・コード・文章・見た目のほか、動画や音楽、作る前のアイデアや企画まで。リンクで見せられるものなら何でも頼めます。": "Apps, games, code, writing and design, plus videos, music, and ideas or plans before you build. Anything you can share with a link.",
 };

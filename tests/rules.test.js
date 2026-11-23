@@ -254,3 +254,11 @@ test("共通のアカウント：使われなくなったかぎで出したも�
   assert.equal(S.reqs[a.id].by, "ID"); assert.equal(S.reqs[b.id], undefined);
   assert.equal(S.users["retired:OLD"], undefined);
 });
+test("見てほしい所：見ごたえ・聴きごたえ、アイデア・企画でも頼める。知らない所だけの依頼は通らない", () => {
+  const a = ev("A", 10, {t: "hello", name: "a"}), m = ev("A", 11, {t: "ask", genres: ["media", "idea"], link: "https://example.com/v", ask: "動画の前半で離れないか"});
+  const x = ev("A", 12, {t: "ask", genres: ["unknown"], link: "https://example.com/x", ask: "?"});
+  const S = reduce([a, m, x], 20);
+  assert.deepEqual(S.reqs[m.id].genres, ["media", "idea"]);
+  assert.equal(S.reqs[x.id], undefined);
+  assert.deepEqual(require("../app/rules.js").fields(["media", "idea"]), ["env", "g:media", "g:idea", "good", "fix"]);
+});
