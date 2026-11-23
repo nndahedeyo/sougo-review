@@ -318,4 +318,9 @@ var EN = {
   "パスキーで守りました": "Protected with a passkey",
   "見てもらえるもの": "What you can ask for",
   "アプリ・ゲーム・コード・文章・見た目のほか、動画や音楽、作る前のアイデアや企画まで。リンクで見せられるものなら何でも頼めます。": "Apps, games, code, writing and design, plus videos, music, and ideas or plans before you build. Anything you can share with a link.",
+  "みんなのレビュー": "Reviews",
+  "「役に立った」になった、公開のやりとりです。どんなレビューが届くのかを読めます。": "Public requests whose review was marked helpful. See what kind of reviews people get.",
+  "まだありません。最初の1件になりませんか。": "None yet. Want to be the first?",
+  "もっと見る": "Show more",
+  "レビュー集": "Reviews",
 };

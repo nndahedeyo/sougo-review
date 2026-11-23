@@ -65,6 +65,15 @@ async function relay(page) {
     const r2 = await ask(E, {link: "https://example.com/open-2", text: "公開の依頼"}); await B.waitForTimeout(800);
     await review(B, r2, "読みやすい"); await judge(E, r2);
     await until(B, () => __sr.S.users[__sr.me.id].tickets === 1);
+    // みんなのレビュー：始める前の人でも、完了した公開のやりとりが読める。非公開のものは出ない
+    const V = await device(); await V.waitForTimeout(1000);
+    await V.click("[data-act=reviews]"); await V.waitForTimeout(400);
+    const vt = await V.textContent("#pbody");
+    check("始める前でも「みんなのレビュー」が読める", vt.includes("公開の依頼") && vt.includes("読みやすい"));
+    check("非公開の依頼は「みんなのレビュー」に出ない", !vt.includes("発表前の画面その1") && !vt.includes("ボタンが小さい"));
+    check("みんなのレビューで横にはみ出さない", !(await V.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));
+    if (process.env.SHOT) await V.screenshot({path: process.env.SHOT.replace(".png", "-reviews.png")});
+    await V.context().close();
     const b1 = await st(B), oldSk = await B.evaluate(() => __sr.me.sk);
     // パスキーで守る（持ち替え）
     await B.evaluate(() => __sr.act("me")); await B.waitForTimeout(300);
@@ -87,7 +96,7 @@ async function relay(page) {
     // パスキーで開き直す（同期した別の端末と同じ。試験用の認証器はパスキーを別の端末へ写せないので、同じ端末で閉じてから開く）
     const bt = (await st(B)).tickets;
     await B.evaluate(() => { localStorage.removeItem("sougo.me"); localStorage.removeItem("sougo.live"); localStorage.removeItem("sougo.ok"); }); await B.reload(); await B.waitForTimeout(1200);
-    check("記録を消すと、はじめの画面になり、リンクは2つ（見本・前に使っていた方）", (await B.$$("#main .row button")).length === 2 && (await B.textContent("#main")).includes("前に使っていた方"));
+    check("記録を消すと、はじめの画面になり、リンクは3つ（見本・レビュー集・前に使っていた方）", (await B.$$("#main .row button")).length === 3 && (await B.textContent("#main")).includes("前に使っていた方"));
     await B.click("[data-act=show-key]"); await B.waitForTimeout(1500);
     const c = await st(B);
     check("パスキーで開くと、同じアカウント（同じ番号・券）に戻る", c.pk === b2.pk && c.id === b1.id && c.tickets === bt);

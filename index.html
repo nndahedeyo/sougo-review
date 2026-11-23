@@ -883,6 +883,11 @@ var EN = {
   "パスキーで守りました": "Protected with a passkey",
   "見てもらえるもの": "What you can ask for",
   "アプリ・ゲーム・コード・文章・見た目のほか、動画や音楽、作る前のアイデアや企画まで。リンクで見せられるものなら何でも頼めます。": "Apps, games, code, writing and design, plus videos, music, and ideas or plans before you build. Anything you can share with a link.",
+  "みんなのレビュー": "Reviews",
+  "「役に立った」になった、公開のやりとりです。どんなレビューが届くのかを読めます。": "Public requests whose review was marked helpful. See what kind of reviews people get.",
+  "まだありません。最初の1件になりませんか。": "None yet. Want to be the first?",
+  "もっと見る": "Show more",
+  "レビュー集": "Reviews",
 };
 
 </script>
@@ -1204,7 +1209,7 @@ function render() {
       <p class="small" style="margin:0">${t("登録もパスワードもいりません。")}${t(starterNow() ? "券が1枚あるので、すぐに見てもらえます。" : "見てあげると券がもらえます。紹介してくれる人から贈ってもらうこともできます。")}</p>
       <p class="small" id="st-msg" style="margin:0;color:var(--warm)" role="alert"></p>
       ${inApp ? `<p class="small" style="margin:0;color:var(--warm)">${t("アプリの中のブラウザでは、閉じると記録が消えることがあります。Safari や Chrome で開いてください。")}</p>` : ""}
-      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link acc" data-act="show-key">${t("前に使っていた方")}</button></div>
+      <div class="row" style="justify-content:flex-start">${mode === "demo" ? "" : `<button type="button" class="link" data-act="demo">${t("見本で試す")}</button>`}<button type="button" class="link" data-act="reviews">${t("レビュー集")}</button><button type="button" class="link acc" data-act="show-key">${t("前に使っていた方")}</button></div>
       <div id="st-key" class="job" hidden><span class="small">${t("「記録とかぎ」で書き写したかぎ（64文字）を入れると、券も記録もそのまま続きます。")}</span><input id="st-imp" placeholder="${t("かぎ（64文字）")}" aria-label="${t("かぎ（64文字）")}" autocomplete="off"><button type="button" data-act="start-import">${t("このかぎで続ける")}</button></div></div>`;
     return;
   }
@@ -1224,7 +1229,7 @@ function render() {
 const stats = () => { const rs = Object.values(S.reqs); return {open: rs.filter(r => r.status === "open").length, done: rs.filter(r => r.status === "done").length, people: Object.keys(S.users).length}; };
 function pulseHtml() {
   const s = stats();
-  return `<div class="pulse"><i aria-hidden="true"></i><span>${t("待っている依頼")} <b>${s.open}</b></span><span>${t("レビュー")} <b>${s.done}</b></span><span>${t("参加")} <b>${s.people}</b></span></div>`;
+  return `<div class="pulse"><i aria-hidden="true"></i><span>${t("待っている依頼")} <b>${s.open}</b></span><button type="button" class="link" data-act="reviews" style="padding:0;min-height:0;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:3px">${t("レビュー")} <b>${s.done}</b></button><span>${t("参加")} <b>${s.people}</b></span></div>`;
 }
 const ago = at => { const d = Math.max(0, now() - at); return d < 60 ? t("いま") : d < 3600 ? t("{n}分前", {n: Math.floor(d / 60)}) : d < 86400 ? t("{n}時間前", {n: Math.floor(d / 3600)}) : t("{n}日前", {n: Math.floor(d / 86400)}); };
 const FEED = {ask: "{p}が「{g}」の依頼を出しました", give: "{p}がレビューを届けました", judge: "{p}の依頼に「役に立った」", link: "{p}が2つの依頼をつなぎました", made: "集まりで「できた」が出ました"};
@@ -1428,6 +1433,17 @@ const HOW = [
   ["運営がいない", "出来事は端末で署名され、だれでも使える中継（Nostr）に置かれます。券の数は、だれの画面でも同じ決まりで数え直されます。"],
   ["試験版です", "知らせが届くのは、アプリを開いている間だけです。かぎをなくすと、券も非公開の中身も戻せません。中継が止まったり古い記録を消したりすることがあります。決まりは変わることがあり、変えたときは変更記録に残します。"],
 ];
+/* ---------- みんなのレビュー：完了して「役に立った」になった、公開のやりとりを新しい順に。始める前の人も読める ---------- */
+let revN = 20;
+const publicDone = () => Object.values(S.reqs).filter(r => r.status === "done" && r.ok && !r.flaggedReview && (!r.private || (r.revealed && r.reviewKey)) && revOf(r))
+  .sort((a, b) => (b.doneAt || b.at) - (a.doneAt || a.at));
+function reviewsHtml() {
+  if (!S) return `<h2>${t("みんなのレビュー")}</h2><p class="empty">${t("読み込んでいます…")}</p>`;
+  const list = publicDone();
+  return `<h2>${t("みんなのレビュー")}</h2><p class="small" style="margin:0">${t("「役に立った」になった、公開のやりとりです。どんなレビューが届くのかを読めます。")}</p>
+    ${list.length ? list.slice(0, revN).map(r => `<div class="job">${reqMini(r).replace('<div class="job" style="gap:4px">', '<div style="display:grid;gap:4px;padding-bottom:10px;border-bottom:1px solid var(--line)">')}${reviewHtml(r)}</div>`).join("") : `<p class="empty">${t("まだありません。最初の1件になりませんか。")}</p>`}
+    ${list.length > revN ? `<button type="button" class="link" data-act="reviews-more">${t("もっと見る")}</button>` : ""}`;
+}
 const howHtml = () => `<h2>${t("しくみ")}</h2><div class="how" style="display:grid;gap:16px">${HOW.map(([h, b]) => `<div><h4>${t(h)}</h4><p>${t(b, {w: Rules.R.writeDays, j: Rules.R.judgeDays})}</p></div>`).join("")}</div>`;
 let histN = 50;
 const T = {hello: "名前", ask: "依頼", take: "引き受け", give: "届けた", judge: "返事", cancel: "取り下げ", release: "手放した", flag: "知らせた", link: "つないだ", answer: "つなぎに返事", made: "できた", confirm: "確かに", share: "中身を渡した", reveal: "公開した", "open-review": "レビューを公開", gift: "券を贈った"};
@@ -1502,6 +1518,8 @@ async function act(a, id) {
   if (a === "dismiss") { note = null; $("#note").innerHTML = ""; return; }
   if (a === "back") return closePanel();
   if (a === "how") return openPanel("how", null, howHtml());
+  if (a === "reviews") { revN = 20; return openPanel("reviews", null, reviewsHtml()); }
+  if (a === "reviews-more") { const b = $(".panel .body"), y = b ? b.scrollTop : 0; revN += 20; $("#pbody").innerHTML = reviewsHtml(); if (b) b.scrollTop = y; return; }
   if (!me || !S) return;
   if (a === "me") { histN = 50; return openPanel("me", null, meHtml()); }
   if (a === "more") { const b = $(".panel .body"), y = b.scrollTop; histN += 100; $("#pbody").innerHTML = meHtml(); b.scrollTop = y; return; }
