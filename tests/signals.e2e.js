@@ -148,6 +148,14 @@ async function relay(page) {
     await C.click('#pbody [data-act="try"]'); await C.waitForTimeout(300);
     check("押すと、自分のでない作品が1つ開く", await C.evaluate(() => { const h = document.querySelector("#pbody h2"); return !!h && h.textContent === "依頼"; }));
     check("一覧で、見てほしい所と数が別の行", await A.evaluate(() => { const it = [...document.querySelectorAll("#lists .item")].find(x => x.textContent.includes("家計簿")); return !!it && it.querySelector("span").textContent === "使い心地" && /保留 3/.test(it.querySelector(".meta").textContent); }));
+    // 長く待っている依頼：2日以上だれも引き受けていない依頼が、3日後の人の画面に出る
+    const W = await device(Math.floor(Date.now() / 1000) + 3 * 86400); await start(W, "みなと");
+    await W.waitForTimeout(800);
+    const wl = await W.textContent("#lists");
+    check("2日以上待っている依頼が「長く待っている依頼」に出る（AIでもよい）", wl.includes("長く待っている依頼") && wl.includes("AIでもよい"));
+    await W.click('#lists [data-act="give"]'); await W.waitForTimeout(300);
+    check("押すと、その依頼が「見てあげる」で開き、AIでも券は同じと添える", (await W.textContent("#pbody")).includes("日待っています") && (await W.textContent("#pbody")).includes("AIで見てあげても"));
+    if (process.env.SHOT) await W.screenshot({path: process.env.SHOT + "-wait.png"});
     // リンクなしの依頼（アイデア）：いつから通すかはまだ決めていない。いまは今までどおり、リンクがないと出せない
     const G = await device(); await start(G, "そら");
     const nReq = await G.evaluate(() => Object.keys(__sr.S.reqs).length);

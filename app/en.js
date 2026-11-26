@@ -1,6 +1,11 @@
 // 英語の画面の言葉。左が日本語（画面の中の元の言葉）、右が英語。言葉を足すときは、ここに1行足す
 "use strict";
 var EN = {
+  "長く待っている依頼": "Waiting a while",
+  "{n}日待っています": "Waiting {n} days",
+  "{n}日": "{n}d",
+  "AIでもよい": "AI is fine",
+  "長く待っている依頼です。AIで見てあげても、券は同じ1枚です（書くときに、使ったAIの名前を入れてください）。": "This one has been waiting a while. Reviewing it with an AI earns the same 1 ticket (add the AI's name when you write).",
   "相互レビュー": "Mutual Review",
   "しくみ": "How it works",
   "記録とかぎ": "Record & key",

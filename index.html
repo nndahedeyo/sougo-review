@@ -67,6 +67,8 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 .pill{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--sunk);color:var(--mute);white-space:nowrap}
 .pill.go{background:var(--acc2);color:var(--acc);font-weight:700}
 .pill.lock{background:var(--warnbg);color:var(--warn)}
+.pill.wait{background:var(--acc2);color:var(--acc)}
+.aiok{color:var(--acc)}
 .pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .empty{color:var(--mute);font-size:13px;padding:6px 2px}
 .note{border-radius:14px;padding:12px 14px;font-size:14px;margin-top:14px;display:flex;gap:10px;justify-content:space-between;background:var(--acc2);color:var(--acc)}
@@ -575,6 +577,11 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 // 英語の画面の言葉。左が日本語（画面の中の元の言葉）、右が英語。言葉を足すときは、ここに1行足す
 "use strict";
 var EN = {
+  "長く待っている依頼": "Waiting a while",
+  "{n}日待っています": "Waiting {n} days",
+  "{n}日": "{n}d",
+  "AIでもよい": "AI is fine",
+  "長く待っている依頼です。AIで見てあげても、券は同じ1枚です（書くときに、使ったAIの名前を入れてください）。": "This one has been waiting a while. Reviewing it with an AI earns the same 1 ticket (add the AI's name when you write).",
   "相互レビュー": "Mutual Review",
   "しくみ": "How it works",
   "記録とかぎ": "Record & key",
@@ -1285,7 +1292,7 @@ function reqCard(r, o = {}) {
   const a = askOf(r), u = S.users[r.by] || {};
   const want = r.want === "human" ? t("人の意見を希望") : r.want === "ai" ? t("AIでの分析を希望") + (r.aiName ? `（${r.aiName}）` : "") : "";
   return `<div class="job">
-    <div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${o.time ? `<span class="small">${t("目安{n}分", {n: Rules.minutes(r.genres)})}</span>` : ""}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}${o.state ? `<span class="pill">${esc(stateOf(r))}</span>` : ""}</div>
+    <div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${o.time ? `<span class="small">${t("目安{n}分", {n: Rules.minutes(r.genres)})}</span>` : ""}${o.time && waiting(r) ? `<span class="pill wait">${t("{n}日待っています", {n: waitDays(r)})}</span>` : ""}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}${o.state ? `<span class="pill">${esc(stateOf(r))}</span>` : ""}</div>
     <div class="ask">${esc(a ? a.ask : r.hint)}</div>
     ${a ? (a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(a.link))}</a>${linkWarn(a.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}` : `<span class="small" style="color:var(--warm)">${t("リンクが正しくありません")}</span>`)
         : `<span class="small">${t("中身は、引き受けると読めます")}</span>`}
@@ -1385,6 +1392,11 @@ function candidates() {
   return Object.values(S.reqs).filter(r => r.status === "open" && r.by !== me.id && !skipped.has(r.id) && (S.users[r.by] || {}).lastReviewed !== me.id && !(r.lapsedBy || []).includes(me.id)).sort((a, b) => a.at - b.at);
 }
 const canTake = r => r.status === "open" && r.by !== me.id && (S.users[r.by] || {}).lastReviewed !== me.id && !(r.lapsedBy || []).includes(me.id);
+// 長く待っている依頼：出してから2日たっても、だれも引き受けていないもの。人の意見を希望していなければ「AIでも」と添える
+const WAIT_DAYS = 2;
+const waitDays = r => r.status === "open" ? Math.floor((now() - r.at) / 86400) : 0;
+const waiting = r => waitDays(r) >= WAIT_DAYS;
+const waitingList = () => candidates().filter(waiting);
 function todo() {
   const out = [];
   for (const r of Object.values(S.reqs)) {
@@ -1452,9 +1464,10 @@ function feedHtml() {
 }
 const cntText = () => { const c = candidates().length; return c ? t("{n}件", {n: c}) : t("いまはなし"); };
 function listsHtml() {
-  const td = todo(), a = myAsks(), cs = myCircles(), w = watchList(), fn = fixNews();
+  const td = todo(), a = myAsks(), cs = myCircles(), w = watchList(), fn = fixNews(), wt = me ? waitingList() : [];
   return (fn.length ? `<h3>${t("お知らせ")}</h3>${fn.map(x => item("fixnews", x.r.id, titleOf(x.r), x.thanked ? t("あなたの指摘で直りました") : t("使った作品が直りました"), t("見る"), x.thanked, x.f.text ? esc(x.f.text.slice(0, 60)) : "")).join("")}` : "")
     + (td.length ? `<h3>${t("あなたの番")}</h3>${td.join("")}` : "")
+    + (wt.length ? `<h3>${t("長く待っている依頼")}</h3>${wt.slice(0, 3).map(r => item("give", r.id, titleOf(r), gnames(r) + SEP + (r.want === "human" ? t("人の意見を希望") : t("AIでもよい")), t("{n}日", {n: waitDays(r)}), false)).join("")}` : "")
     + `<h3>${t("あなたの依頼")}</h3>` + (a.length ? a.map(r => item(r.status === "given" ? "judge" : "mine", r.id, titleOf(r), gnames(r) + (r.private && !r.revealed ? SEP + t("非公開") : "") , stateOf(r), r.status === "given", countsChips(r))).join("") : `<p class="empty">${t("まだありません")}</p>`)
     + (cs.length ? `<h3>${t("集まり")}</h3>${cs.map(C => item("circle", C.id, t("{m}人・{r}件", {m: C.members.length, r: C.reqs.length}), C.members.map(nameOf).join(LANG === "ja" ? "、" : ", ").slice(0, 48), t(CST[C.status]), C.status === "complete")).join("")}` : "")
     + (w.length ? `<h3>${t("保留中")}</h3>${w.map(r => item("view", r.id, titleOf(r), `${gnames(r)}${SEP}${nameOf(r.by)}`, stateOf(r))).join("")}` : "");
@@ -1528,12 +1541,14 @@ function askHtml() {
     <button type="button" class="primary wide" data-act="send-ask" ${no ? "disabled" : ""}>${t("出す（券1枚）")}</button>
     ${no ? `<p class="small" style="margin:0">${t("券がありません。だれかを見てあげると増えます。紹介してくれる人から贈ってもらうこともできます（「記録とかぎ」の番号を伝える）。")}</p>` : ""}`;
 }
+let giveFocus = null;   // 「長く待っている依頼」から開いたときは、その依頼を先に出す
 function giveHtml() {
   const list = candidates();
   if (!list.length) return `<h2>${t("見てあげる")}</h2><p class="empty">${t("いま待っている依頼はありません。")}</p>
     <div class="job"><b>${t("あなたが最初の依頼を出しませんか")}</b><span class="small">${t("依頼が1件あると、次に来た人がすぐ見てあげられます。見てもらえたら、こんどはあなたが見てあげる番です。")}</span><button type="button" class="primary wide" data-act="ask">${t("見てもらう")}</button></div>${skipped.size ? `<button type="button" class="link" data-act="unskip">${t("見送った依頼をもう一度見る")}</button>` : ""}`;
-  const r = list[0], u = mine(), canFlag = (u.helped || 0) >= 1 && (!r.private || r.revealed);
+  const r = list.find(x => x.id === giveFocus) || list[0], u = mine(), canFlag = (u.helped || 0) >= 1 && (!r.private || r.revealed);
   return `<h2>${t("見てあげる")}</h2>${reqCard(r, {time: true, judge: true})}
+    ${waiting(r) && r.want !== "human" ? `<p class="small aiok" style="margin:0">${t("長く待っている依頼です。AIで見てあげても、券は同じ1枚です（書くときに、使ったAIの名前を入れてください）。")}</p>` : ""}
     <p class="small" style="margin:0">${t("開くときは、ウォレットをつながない・署名しない・かぎを入れない。")}</p>
     <div class="two" style="margin-top:0"><button type="button" data-act="skip" data-id="${r.id}">${t("ほかを見る")}<small>${t("何も減らない")}</small></button><button type="button" class="primary" data-act="take" data-id="${r.id}">${t("引き受ける")}<small>${t("{n}日以内に書く", {n: Rules.R.writeDays})}</small></button></div>
     <div class="row"><button type="button" class="link" data-act="watch-next" data-id="${r.id}">${t("保留")}</button>${canLink(r) ? `<button type="button" class="link acc" data-act="linkfrom" data-id="${r.id}">${t("つなぐ")}</button>` : ""}${canFlag ? `<button type="button" class="link warm" data-act="flag-ask" data-id="${r.id}">${t("危ない依頼")}</button>` : ""}</div>`;
@@ -1765,12 +1780,12 @@ async function act(a, id) {
   if ((a === "watch" || a === "unwatch") && r) { setWatch(id, a === "watch"); live(); return openPanel("view", id, viewHtml(r)); }
   if (a === "watch-next" && r) { setWatch(id, true); skip(id); note = {m: t("保留しました")}; render(); return openPanel("give", null, giveHtml()); }
   if (a === "ask") return openPanel("ask", null, askHtml());
-  if (a === "give") return openPanel("give", null, giveHtml());
+  if (a === "give") { giveFocus = id || null; return openPanel("give", null, giveHtml()); }
   if (a === "write" && r) return openPanel("write", id, writeHtml(r));
   if (a === "judge" && r) return openPanel("judge", id, judgeHtml(r));
   if (a === "mine" && r) return openPanel("mine", id, mineHtml(r));
   if (a === "unskip") { skipped.clear(); store.set("sougo.skip", []); return openPanel("give", null, giveHtml()); }
-  if (a === "skip") { skip(id); return openPanel("give", null, giveHtml()); }
+  if (a === "skip") { skip(id); giveFocus = null; return openPanel("give", null, giveHtml()); }
   if (a === "send-ask" || a === "take") askNotify();
   if (a === "send-ask") {
     const link = $("#a-link").value.trim(), ask = $("#a-ask").value.trim(), hint = $("#a-hint").value.trim();
