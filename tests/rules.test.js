@@ -262,3 +262,17 @@ test("見てほしい所：見ごたえ・聴きごたえ、アイデア・企�
   assert.equal(S.reqs[x.id], undefined);
   assert.deepEqual(require("../app/rules.js").fields(["media", "idea"]), ["env", "g:media", "g:idea", "good", "fix"]);
 });
+test("リンクなしの依頼（文章だけのアイデア）：決めた時刻より後だけ通る。前は今までどおり通らない", () => {
+  const F = require("../app/rules.js").R.ideaFrom;
+  const a = ev("A", 10, {t: "hello", name: "a"}), b = ev("B", 11, {t: "hello", name: "b"});
+  const before = ev("A", F - 60, {t: "ask", genres: ["idea"], ask: "通知を自動でまとめるアイデア"});
+  const after = ev("B", F + 60, {t: "ask", genres: ["idea"], ask: "通知を自動でまとめるアイデア"});
+  const empty = ev("B", F + 120, {t: "ask", genres: ["idea"], ask: "  "});
+  const bad = ev("B", F + 180, {t: "ask", genres: ["idea"], link: "http://example.com", ask: "リンクが https でない"});
+  const S = reduce([a, b, before, after, empty, bad], F + 300);
+  assert.equal(S.reqs[before.id], undefined);
+  assert.equal(S.reqs[after.id].link, "");
+  assert.equal(S.reqs[empty.id], undefined);
+  assert.equal(S.reqs[bad.id], undefined);
+  assert.equal(S.users.A.tickets, 1);   // 通らなかった依頼では券は減らない
+});

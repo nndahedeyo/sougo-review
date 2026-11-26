@@ -12,6 +12,7 @@
     futureSkew: 600,   // 未来の時刻の出来事は、この秒数より先なら無視する
     linkDays: 14,      // つなぎの提案に返事がなければ、この日数で消える
     hideFlags: 2,      // 「危ない」がこの人数（見てあげた実績のある人）から付いた依頼は、だれの画面からも消える
+    ideaFrom: 4102412400,       // この時刻以後の公開の依頼は、リンクなし（文章だけのアイデア）でも出せる。それより前はリンクが必要。いつからにするかはまだ決めていない（いまは 2100-01-01 00:00 日本時間にしてあり、実際には通らない）
     starterUntil: 1798729200,   // 最初の券を配るのは、この時刻（2027-01-01 00:00 日本時間）までに始めた人だけ。以後は見てあげるか、贈ってもらって始める
     borrow: false,     // 保険：券が足りなくなったときだけ有効にする。待っている依頼が1件もないとき、券のない人が1件だけ借りて出せる
   };
@@ -87,12 +88,12 @@
       else if (c.t === "gift" && isHex(c.to, 64) && c.to !== who && u.helped >= 1 && u.tickets >= 1) { u.tickets--; u.gifted++; const v = U(c.to); v.tickets++; v.gotGift++; ok = true; }
       else if (c.t === "ask" && (u.tickets >= 1 || canBorrow(u)) && genresOf(c).length && (c.private === true
                  ? isSealed(c.sealed) && isHex(c.n, 32) && String(c.hint || "").trim()
-                 : /^https:\/\/\S+$/.test(c.link || "") && String(c.ask || "").trim())) {
+                 : (/^https:\/\/\S+$/.test(c.link || "") || (!c.link && e.created_at >= R.ideaFrom)) && String(c.ask || "").trim())) {
         u.tickets--;
         const base = {id: e.id, by: who, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
         S.reqs[e.id] = c.private === true
           ? {...base, byKey: signer, private: true, hint: String(c.hint).trim().slice(0, 80), sealed: c.sealed, n: c.n, shares: {}, link: "", ask: ""}
-          : {...base, byKey: signer, private: false, link: c.link.slice(0, 300), ask: String(c.ask).slice(0, 400)};
+          : {...base, byKey: signer, private: false, link: String(c.link || "").slice(0, 300), ask: String(c.ask).slice(0, 400)};
         ok = true;
       }
       // 取り下げ：待っている依頼だけ。集まりに入った依頼は、取り下げても券は戻らない
