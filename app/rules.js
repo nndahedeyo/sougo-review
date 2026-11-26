@@ -90,7 +90,7 @@
                  ? isSealed(c.sealed) && isHex(c.n, 32) && String(c.hint || "").trim()
                  : (/^https:\/\/\S+$/.test(c.link || "") || (!c.link && e.created_at >= R.ideaFrom)) && String(c.ask || "").trim())) {
         u.tickets--;
-        const base = {id: e.id, by: who, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
+        const base = {id: e.id, by: who, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), fromAI: c.from === "ai", status: "open", taker: null};   // fromAI：AI が出した依頼（画面で必ず印を付ける）
         S.reqs[e.id] = c.private === true
           ? {...base, byKey: signer, private: true, hint: String(c.hint).trim().slice(0, 80), sealed: c.sealed, n: c.n, shares: {}, link: "", ask: ""}
           : {...base, byKey: signer, private: false, link: String(c.link || "").slice(0, 300), ask: String(c.ask).slice(0, 400)};

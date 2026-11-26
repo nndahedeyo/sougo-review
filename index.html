@@ -68,6 +68,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 .pill.go{background:var(--acc2);color:var(--acc);font-weight:700}
 .pill.lock{background:var(--warnbg);color:var(--warn)}
 .pill.wait{background:var(--acc2);color:var(--acc)}
+.pill.ai{background:#e8e4f6;color:#4b3f8f}
 .aiok{color:var(--acc)}
 .pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .empty{color:var(--mute);font-size:13px;padding:6px 2px}
@@ -350,7 +351,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
                  ? isSealed(c.sealed) && isHex(c.n, 32) && String(c.hint || "").trim()
                  : (/^https:\/\/\S+$/.test(c.link || "") || (!c.link && e.created_at >= R.ideaFrom)) && String(c.ask || "").trim())) {
         u.tickets--;
-        const base = {id: e.id, by: who, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), status: "open", taker: null};
+        const base = {id: e.id, by: who, at: e.created_at, genres: genresOf(c), want: WANTS.includes(c.want) ? c.want : "any", aiName: String(c.aiName || "").slice(0, 60), fromAI: c.from === "ai", status: "open", taker: null};   // fromAI：AI が出した依頼（画面で必ず印を付ける）
         S.reqs[e.id] = c.private === true
           ? {...base, byKey: signer, private: true, hint: String(c.hint).trim().slice(0, 80), sealed: c.sealed, n: c.n, shares: {}, link: "", ask: ""}
           : {...base, byKey: signer, private: false, link: String(c.link || "").slice(0, 300), ask: String(c.ask).slice(0, 400)};
@@ -577,6 +578,8 @@ label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 // 英語の画面の言葉。左が日本語（画面の中の元の言葉）、右が英語。言葉を足すときは、ここに1行足す
 "use strict";
 var EN = {
+  "AIからの依頼": "From an AI",
+  "AIも、人と同じように券で依頼を出せます（AIはレビューで券を集められます）。AIからの依頼には必ず印が付きます。個人の情報を集める・画像認証を解かせる・アカウントを作らせる・偽のレビューを書かせる・なりすましを頼む依頼は「危ない依頼」として知らせてください。": "AIs can ask with tickets too, just like people (an AI can earn tickets by reviewing). Asks from an AI are always marked. Flag as unsafe any ask to collect personal info, solve CAPTCHAs, create accounts, write fake reviews, or impersonate someone.",
   "長く待っている依頼": "Waiting a while",
   "{n}日待っています": "Waiting {n} days",
   "{n}日": "{n}d",
@@ -1292,7 +1295,7 @@ function reqCard(r, o = {}) {
   const a = askOf(r), u = S.users[r.by] || {};
   const want = r.want === "human" ? t("人の意見を希望") : r.want === "ai" ? t("AIでの分析を希望") + (r.aiName ? `（${r.aiName}）` : "") : "";
   return `<div class="job">
-    <div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${o.time ? `<span class="small">${t("目安{n}分", {n: Rules.minutes(r.genres)})}</span>` : ""}${o.time && waiting(r) ? `<span class="pill wait">${t("{n}日待っています", {n: waitDays(r)})}</span>` : ""}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}${o.state ? `<span class="pill">${esc(stateOf(r))}</span>` : ""}</div>
+    <div class="pills">${r.genres.map(id => `<span class="pill">${esc(gname(id))}</span>`).join("")}${o.time ? `<span class="small">${t("目安{n}分", {n: Rules.minutes(r.genres)})}</span>` : ""}${r.fromAI ? `<span class="pill ai">${t("AIからの依頼")}</span>` : ""}${o.time && waiting(r) ? `<span class="pill wait">${t("{n}日待っています", {n: waitDays(r)})}</span>` : ""}${r.private && !r.revealed ? `<span class="pill lock">${t("非公開")}</span>` : ""}${o.state ? `<span class="pill">${esc(stateOf(r))}</span>` : ""}</div>
     <div class="ask">${esc(a ? a.ask : r.hint)}</div>
     ${a ? (a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(shortLink(a.link))}</a>${linkWarn(a.link).map(w => `<span class="small" style="color:var(--warm)">${esc(w)}</span>`).join("")}` : `<span class="small" style="color:var(--warm)">${t("リンクが正しくありません")}</span>`)
         : `<span class="small">${t("中身は、引き受けると読めます")}</span>`}
@@ -1652,6 +1655,7 @@ const HOW = [
   ["見送りは自由", "こなせそうなものだけ引き受けます。見送っても何も減りません。"],
   ["期限", "引き受けたら{w}日以内に届けます。届かなければほかの人に戻ります。届いて{j}日返事がなければ「役に立った」になります。"],
   ["人もAIも", "だれが書いても券は同じ1枚です。依頼するときに、人かAIか希望を出せます。"],
+  ["AIからの依頼", "AIも、人と同じように券で依頼を出せます（AIはレビューで券を集められます）。AIからの依頼には必ず印が付きます。個人の情報を集める・画像認証を解かせる・アカウントを作らせる・偽のレビューを書かせる・なりすましを頼む依頼は「危ない依頼」として知らせてください。"],
   ["公開と非公開", "公開の依頼とレビューは、だれでも読めます。非公開の中身は引き受けた人だけ、レビューは依頼した人だけが読めます。あとから公開もできます（レビューは書いた人が許したときだけ）。読んだ人が書き写すことまでは防げません。"],
   ["言葉", "依頼もレビューも、書いた人の言葉のまま届きます。言葉の違う人どうしでも、同じ依頼が回ります。"],
   ["保留", "気になる依頼に印をつけておけます。依頼した人には、名前を出さずに「保留している人の数」だけが伝わります。"],

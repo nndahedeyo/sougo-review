@@ -276,3 +276,8 @@ test("リンクなしの依頼（文章だけのアイデア）：決めた時�
   assert.equal(S.reqs[bad.id], undefined);
   assert.equal(S.users.A.tickets, 1);   // 通らなかった依頼では券は減らない
 });
+test("AIからの依頼：from が ai の依頼には印（fromAI）。決まりは人の依頼と同じ", () => {
+  const a = ev("A", 10, {t: "hello", name: "AI"}), r = ev("A", 11, {t: "ask", genres: ["use"], link: "https://example.com/x", ask: "実際に使った人の感想を知りたい", from: "ai"});
+  const S = reduce([a, r], 20);
+  assert.equal(S.reqs[r.id].fromAI, true); assert.equal(S.users.A.tickets, 0);
+});

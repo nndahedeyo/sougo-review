@@ -1,6 +1,8 @@
 // 英語の画面の言葉。左が日本語（画面の中の元の言葉）、右が英語。言葉を足すときは、ここに1行足す
 "use strict";
 var EN = {
+  "AIからの依頼": "From an AI",
+  "AIも、人と同じように券で依頼を出せます（AIはレビューで券を集められます）。AIからの依頼には必ず印が付きます。個人の情報を集める・画像認証を解かせる・アカウントを作らせる・偽のレビューを書かせる・なりすましを頼む依頼は「危ない依頼」として知らせてください。": "AIs can ask with tickets too, just like people (an AI can earn tickets by reviewing). Asks from an AI are always marked. Flag as unsafe any ask to collect personal info, solve CAPTCHAs, create accounts, write fake reviews, or impersonate someone.",
   "長く待っている依頼": "Waiting a while",
   "{n}日待っています": "Waiting {n} days",
   "{n}日": "{n}d",
