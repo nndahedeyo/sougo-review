@@ -169,8 +169,11 @@ const ours = ev => ev && ((ev.kind === KIND || ev.kind === SKIND || ev.kind === 
 /* ---------- リレー（Nostr） ---------- */
 const sockets = [];
 let verified = new Set(store.get("sougo.ok", []));
+// 受け取る出来事の形を先に確かめる（番号・署名の形、大きさ、付け札の数）。形の合わないもの・大きすぎるものは読まない（送りつけで端末があふれないように）
+const shapeOk = ev => /^[0-9a-f]{64}$/.test(ev.id) && /^[0-9a-f]{64}$/.test(ev.pubkey) && /^[0-9a-f]{128}$/.test(ev.sig || "") && Number.isInteger(ev.created_at) && ev.created_at > 0 &&
+  typeof ev.content === "string" && ev.content.length <= 20000 && Array.isArray(ev.tags) && ev.tags.length <= 10 && ev.tags.every(t => Array.isArray(t) && t.length <= 4 && t.every(x => typeof x === "string" && x.length <= 200));
 async function accept(ev) {
-  if (!ours(ev)) return;
+  if (!ours(ev) || !shapeOk(ev)) return;
   if (!verified.has(ev.id)) { if (!(await Sig.verifyEvent(ev))) return; verified.add(ev.id); store.set("sougo.ok", [...verified].slice(-5000)); }
   if (addEvent(ev)) schedule();
 }

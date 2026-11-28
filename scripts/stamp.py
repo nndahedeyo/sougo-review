@@ -12,6 +12,7 @@ import asyncio
 import datetime as dt
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,16 @@ FILTERS = [{"kinds": [7710], "#t": ["sougo-review"]}, {"kinds": [7720], "#t": ["
 def event_id(ev):
     s = json.dumps([0, ev["pubkey"], ev["created_at"], ev["kind"], ev["tags"], ev["content"]], separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(s.encode()).hexdigest()
+
+
+HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def shape_ok(ev):
+    # 番号・人の番号・署名の形と、大きさを確かめる（形の合わないもの・大きすぎるものは刻まない）
+    return (isinstance(ev.get("id"), str) and HEX.match(ev["id"]) and isinstance(ev.get("pubkey"), str) and HEX.match(ev["pubkey"])
+            and isinstance(ev.get("sig"), str) and re.match(r"^[0-9a-f]{128}$", ev["sig"]) and isinstance(ev.get("created_at"), int)
+            and isinstance(ev.get("content"), str) and len(ev["content"]) <= 20000 and isinstance(ev.get("tags"), list) and len(ev["tags"]) <= 10)
 
 
 async def fetch(url, found):
@@ -52,7 +63,7 @@ async def fetch_one(url, found, FILTER):
                     msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=30))
                     if msg[0] == "EVENT" and msg[1] == sub:
                         ev = msg[2]
-                        if isinstance(ev, dict) and ev.get("id") == event_id(ev):   # 中身と番号が合うものだけ
+                        if isinstance(ev, dict) and shape_ok(ev) and ev.get("id") == event_id(ev):   # 形が合い、中身と番号が合うものだけ
                             found[ev["id"]] = ev["created_at"]
                             n += 1
                             oldest = ev["created_at"] if oldest is None else min(oldest, ev["created_at"])

@@ -43,7 +43,8 @@
   function reduce(events, now, resolve) {
     // 未来の時刻をつけた出来事は数えない（時刻をずらして順番を横取りするのを防ぐ）
     const evs = events.filter(e => e.created_at <= now + R.futureSkew).slice().sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
-    const S = {users: {}, reqs: {}, links: {}, circles: {}, log: []};
+    // 名前の付いた表は、ふつうの物の性質を持たない形で作る（"__proto__" などの番号を送り込まれても、表そのものが書き換わらないように）
+    const S = {users: Object.create(null), reqs: Object.create(null), links: Object.create(null), circles: Object.create(null), log: []};
     const pairs = new Set();    // 一度つながった持ち主どうし（同じ2人は1回だけ）
     const U = pk => S.users[pk] || (S.users[pk] = {pk, name: "", tickets: 0, starter: false, gifted: 0, gotGift: 0, gave: 0, helped: 0, got: 0, judged: 0, judgedOk: 0, flaggedAsks: 0, flaggedReviews: 0, linked: 0, lastReviewed: null, joined: null});
     const holding = pk => Object.values(S.reqs).filter(r => r.status === "taken" && r.taker === pk).length;
